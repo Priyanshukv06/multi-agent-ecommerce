@@ -1,0 +1,32 @@
+# Core
+langgraph>=0.2.0
+langchain>=0.2.0
+langchain-openai>=0.1.0
+langchain-groq>=0.1.0
+
+# Tools
+tavily-python>=0.3.0
+
+# Database
+sqlalchemy>=2.0.0
+
+# Vector Store (optional Phase 4)
+chromadb>=0.4.0
+
+# API
+fastapi>=0.110.0
+uvicorn>=0.29.0
+
+# Frontend
+streamlit>=1.35.0
+
+# Observability
+langsmith>=0.1.0
+
+# Testing
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+
+# Utils
+python-dotenv>=1.0.0
+pydantic>=2.0.0
