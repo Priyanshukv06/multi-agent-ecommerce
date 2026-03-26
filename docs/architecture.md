@@ -43,3 +43,60 @@
 - JOB: write order to DB, return order_id
 - OUTPUT: order_status, order_id
 - RULE: Only runs if intent == "order" AND user said "yes"
+
+
+## Workflow
+
+## Workflow Diagram
+
+USER QUERY
+    │
+    ▼
+┌─────────────┐
+│   PLANNER   │  ← Groq (fast classification)
+│   AGENT     │
+└──────┬──────┘
+       │
+  ┌────┴─────────────────────────┐
+  │ intent?                      │
+  ▼                              ▼
+[recommendation]              [order/return/track]
+  │                              │
+  ▼                              ▼
+┌────────┐              ┌──────────────┐
+│ SEARCH │              │    ACTION    │
+│ AGENT  │              │    AGENT     │ ← DB write
+└───┬────┘              └──────────────┘
+    │
+    ▼
+┌──────────┐
+│ RESEARCH │  ← NVIDIA NIM (parallel per product in Phase 4)
+│  AGENT   │
+└─────┬────┘
+      │
+      ▼
+┌────────────┐
+│ COMPARISON │  ← NVIDIA NIM (structured scoring)
+│   AGENT    │
+└──────┬─────┘
+       │
+       ▼
+┌───────────────┐
+│ RECOMMENDATION│  ← NVIDIA Nemotron (best reasoning)
+│    AGENT      │
+└───────┬───────┘
+        │
+        ▼
+┌──────────────┐
+│    CRITIC    │  ← Groq (fast validation)
+│    AGENT     │
+└──────┬───────┘
+       │
+  score >= 0.7?
+  ┌────┴────┐
+  YES       NO (retry_count < 3)
+  │         │
+  ▼         └──────────────────┐
+OUTPUT                         │
+(final answer             back to RECOMMENDATION
+ shown to user)

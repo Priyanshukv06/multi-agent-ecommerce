@@ -1,6 +1,6 @@
 from langgraph.graph import StateGraph, END
 from langgraph.graph import START
-from langchain_nvidia_langgraph.graph import OptimizationConfig  # NVIDIA parallel boost
+from langgraph.graph import StateGraph, END, START
 from state.schema import EcommerceState
 
 # ── Node imports (will be filled Phase 3) ──────────────────────────────────
@@ -76,8 +76,7 @@ def build_graph():
     graph.add_edge("action", END)
 
     # Compile with NVIDIA parallel optimization
-    return graph.compile(
-        optimization=OptimizationConfig(enable_parallel=True)
-    )
+    return graph.compile()
+    
 
 app = build_graph()
