@@ -2,16 +2,15 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 
-# LangSmith tracing (free — shows every agent step)
-os.environ["LANGCHAIN_TRACING_V2"]  = os.getenv("LANGCHAIN_TRACING_V2", "false")
-os.environ["LANGCHAIN_API_KEY"]     = os.getenv("LANGCHAIN_API_KEY", "")
-os.environ["LANGCHAIN_PROJECT"]     = os.getenv("LANGCHAIN_PROJECT", "multi-agent-ecommerce")
+os.environ["LANGCHAIN_TRACING_V2"] = os.getenv("LANGCHAIN_TRACING_V2", "false")
+os.environ["LANGCHAIN_API_KEY"]    = os.getenv("LANGCHAIN_API_KEY", "")
+os.environ["LANGCHAIN_PROJECT"]    = os.getenv("LANGCHAIN_PROJECT", "multi-agent-ecommerce")
 
 from graph.workflow import app
 from state.schema   import EcommerceState
 
 
-def run_agent(query: str):
+def run_agent(query: str, recommended_product_id: int = None) -> dict:
     print("\n" + "=" * 65)
     print(f"👤 USER: {query}")
     print("=" * 65)
@@ -27,7 +26,7 @@ def run_agent(query: str):
         "research_data":          [],
         "comparison_result":      None,
         "final_answer":           "",
-        "recommended_product_id": None,
+        "recommended_product_id": recommended_product_id,
         "validation_score":       0.0,
         "validation_feedback":    None,
         "retry_count":            0,
@@ -49,13 +48,23 @@ def run_agent(query: str):
 
 
 if __name__ == "__main__":
-    # Test queries — run all three to verify full pipeline
-    test_queries = [
-        "I want a good book to learn machine learning under ₹1000",
-        "Compare deep learning books",
-        "Where is my order ORD-00001",
-    ]
+    # ── Phase 3+4 tests ──────────────────────────────────────────────────────
+    run_agent("I want a good book to learn machine learning under ₹1000")
+    run_agent("Compare deep learning books")
 
-    for query in test_queries:
-        run_agent(query)
-        print("\n")
+    # ── Phase 5 tests ────────────────────────────────────────────────────────
+    # Test order placement (product_id=1 = Hands-On ML)
+    state = run_agent("Buy it", recommended_product_id=1)
+    placed_order_id = state.get("order_id", "ORD-00001")
+
+    # Test tracking with real order ID from above
+    run_agent(f"Where is my order {placed_order_id}")
+
+    # Test show all orders
+    run_agent("Show my orders")
+
+    # Test return flow
+    run_agent(f"Return my order {placed_order_id}")
+
+    # Test track after return
+    run_agent(f"Track order {placed_order_id}")
