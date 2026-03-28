@@ -1,64 +1,71 @@
 from typing import TypedDict, List, Optional, Literal, Annotated
 import operator
 
+
 class ProductItem(TypedDict):
-    id: int
-    title: str
-    author: str
-    price: float
-    rating: float
-    category: str
+    id:          int
+    title:       str
+    author:      str
+    price:       float
+    rating:      float
+    category:    str
     description: str
-    reviews: List[str]
+    reviews:     List[str]
+
 
 class ResearchData(TypedDict):
-    product_id: int
-    title: str
-    pros: List[str]
-    cons: List[str]
+    product_id:       int
+    title:            str
+    pros:             List[str]
+    cons:             List[str]
     difficulty_level: Literal["beginner", "intermediate", "advanced"]
-    use_cases: List[str]
-    summary: str
+    use_cases:        List[str]
+    summary:          str
+
 
 class ComparisonResult(TypedDict):
     ranked_products: List[dict]
-    best_choice_id: int
-    scoring_table: List[dict]
-    reasoning: str
+    best_choice_id:  int
+    scoring_table:   List[dict]
+    reasoning:       str
+
 
 class EcommerceState(TypedDict):
-    # Input
-    user_query: str
-    conversation_history: List[dict]
+    # ── Session ──────────────────────────────────────────────────────────────
+    session_id:   str                        # ← NEW: tracks conversation
 
-    # Planner
-    intent: str
-    plan: List[str]
-    budget: Optional[float]
+    # ── Input ────────────────────────────────────────────────────────────────
+    user_query:             str
+    conversation_history:   List[dict]
+
+    # ── Planner ──────────────────────────────────────────────────────────────
+    intent:   str
+    plan:     List[str]
+    budget:   Optional[float]
     category: Optional[str]
 
-    # Search
+    # ── Search ───────────────────────────────────────────────────────────────
     product_list: List[ProductItem]
 
-    # Research — Annotated with operator.add so parallel results get MERGED
+    # ── Research ─────────────────────────────────────────────────────────────
     research_data: Annotated[List[ResearchData], operator.add]
 
-    # Comparison
+    # ── Comparison ───────────────────────────────────────────────────────────
     comparison_result: Optional[ComparisonResult]
 
-    # Recommendation
-    final_answer: str
-    recommended_product_id: Optional[int]
+    # ── Recommendation ───────────────────────────────────────────────────────
+    final_answer:            str
+    recommended_product_id:  Optional[int]
 
-    # Critic
-    validation_score: float
+    # ── Critic ───────────────────────────────────────────────────────────────
+    validation_score:    float
     validation_feedback: Optional[str]
-    retry_count: int
+    retry_count:         int
 
-    # Action
+    # ── Action ───────────────────────────────────────────────────────────────
     order_status: Optional[str]
-    order_id: Optional[str]
+    order_id:     Optional[str]
 
-    # System
-    error: Optional[str]
+    # ── System ───────────────────────────────────────────────────────────────
+    error:        Optional[str]
     current_node: str
