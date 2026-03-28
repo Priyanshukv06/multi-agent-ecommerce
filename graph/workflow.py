@@ -1,82 +1,75 @@
-from langgraph.graph import StateGraph, END
-from langgraph.graph import START
 from langgraph.graph import StateGraph, END, START
 from state.schema import EcommerceState
-
-# ── Node imports (will be filled Phase 3) ──────────────────────────────────
-from agents.planner import planner_node
-from agents.search import search_node
-from agents.research import research_node
-from agents.comparison import comparison_node
+from agents.planner       import planner_node
+from agents.search        import search_node
+from agents.research      import research_node
+from agents.comparison    import comparison_node
 from agents.recommendation import recommendation_node
-from agents.critic import critic_node
-from agents.action import action_node
+from agents.critic        import critic_node
+from agents.action        import action_node
 
-# ── Conditional routing functions ──────────────────────────────────────────
+# ── Conditional Routing Functions ─────────────────────────────────────────
 
 def route_after_planner(state: EcommerceState) -> str:
-    """Planner decides which flow to enter."""
-    intent = state["intent"]
-    if intent == "recommendation":
-        return "search"
-    elif intent == "order":
+    intent = state.get("intent", "recommendation")
+    if intent in ("order", "return", "track"):
         return "action"
-    elif intent == "return":
-        return "action"
-    elif intent == "track":
-        return "action"
-    else:
-        return "search"   # fallback
+    return "search"   # recommendation, compare, faq all go through search
+
 
 def route_after_critic(state: EcommerceState) -> str:
-    """Critic decides: pass output OR loop back."""
-    score = state["validation_score"]
-    retry = state["retry_count"]
-    if score >= 0.7 or retry >= 3:
-        return "output"
-    else:
-        return "recommendation"   # retry loop
+    score       = state.get("validation_score", 0.8)
+    retry_count = state.get("retry_count", 0)
 
-# ── Build the Graph ────────────────────────────────────────────────────────
+    if score >= 0.7 or retry_count >= 3:
+        if retry_count >= 3:
+            print(f"  ⚠️  Max retries reached — forcing output")
+        return END
+    print(f"  🔁 Score {score:.2f} < 0.7 — retrying recommendation...")
+    return "recommendation"
+
+
+# ── Build Graph ───────────────────────────────────────────────────────────
 
 def build_graph():
     graph = StateGraph(EcommerceState)
 
-    # Add nodes
-    graph.add_node("planner", planner_node)
-    graph.add_node("search", search_node)
-    graph.add_node("research", research_node)
-    graph.add_node("comparison", comparison_node)
+    # Register nodes
+    graph.add_node("planner",        planner_node)
+    graph.add_node("search",         search_node)
+    graph.add_node("research",       research_node)
+    graph.add_node("comparison",     comparison_node)
     graph.add_node("recommendation", recommendation_node)
-    graph.add_node("critic", critic_node)
-    graph.add_node("action", action_node)
+    graph.add_node("critic",         critic_node)
+    graph.add_node("action",         action_node)
 
-    # Entry point
+    # Entry
     graph.add_edge(START, "planner")
 
-    # Planner → conditional branch
-    graph.add_conditional_edges("planner", route_after_planner, {
-        "search": "search",
-        "action": "action",
-    })
+    # Planner → branch
+    graph.add_conditional_edges(
+        "planner",
+        route_after_planner,
+        {"search": "search", "action": "action"}
+    )
 
     # Recommendation pipeline
-    graph.add_edge("search", "research")
-    graph.add_edge("research", "comparison")
-    graph.add_edge("comparison", "recommendation")
+    graph.add_edge("search",      "research")
+    graph.add_edge("research",    "comparison")
+    graph.add_edge("comparison",  "recommendation")
     graph.add_edge("recommendation", "critic")
 
-    # Critic loop
-    graph.add_conditional_edges("critic", route_after_critic, {
-        "output": END,
-        "recommendation": "recommendation",
-    })
+    # Critic → pass or loop
+    graph.add_conditional_edges(
+        "critic",
+        route_after_critic,
+        {END: END, "recommendation": "recommendation"}
+    )
 
-    # Action flow
+    # Action → end
     graph.add_edge("action", END)
 
-    # Compile with NVIDIA parallel optimization
     return graph.compile()
-    
+
 
 app = build_graph()
