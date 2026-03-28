@@ -122,22 +122,34 @@ def get_order(order_id: str) -> Optional[dict]:
     if not row:
         return None
 
-    created_at = datetime.strptime(row[4][:19], "%Y-%m-%d %H:%M:%S")
-    days_since = (datetime.now() - created_at).days
+    created_at  = datetime.strptime(row[4][:19], "%Y-%m-%d %H:%M:%S")
+    days_since  = (datetime.now() - created_at).days
+    real_status = row[3]   # actual DB status column
 
-    # Simulate delivery status based on time elapsed
-    if days_since == 0:
-        delivery_status = "Order Confirmed — being packed"
-        location        = "Seller Warehouse"
-    elif days_since == 1:
-        delivery_status = "Shipped — in transit"
-        location        = "Local Sorting Hub"
-    elif days_since >= 2:
-        delivery_status = "Out for Delivery"
-        location        = "Delivery Partner"
+    # ── Real status takes priority over time simulation ──────────────────
+    if real_status == "return_initiated":
+        delivery_status = "Return Initiated — awaiting pickup"
+        location        = "Return Processing Center"
+    elif real_status == "cancelled":
+        delivery_status = "Order Cancelled"
+        location        = "N/A"
+    elif real_status == "delivered":
+        delivery_status = "Delivered ✅"
+        location        = "Delivered to customer"
     else:
-        delivery_status = "Processing"
-        location        = "Warehouse"
+        # Time-based simulation for active orders
+        if days_since == 0:
+            delivery_status = "Order Confirmed — being packed"
+            location        = "Seller Warehouse"
+        elif days_since == 1:
+            delivery_status = "Shipped — in transit"
+            location        = "Local Sorting Hub"
+        elif days_since >= 2:
+            delivery_status = "Out for Delivery"
+            location        = "Delivery Partner"
+        else:
+            delivery_status = "Processing"
+            location        = "Warehouse"
 
     eta = (created_at + timedelta(days=5)).strftime("%d %b %Y")
 
@@ -145,7 +157,7 @@ def get_order(order_id: str) -> Optional[dict]:
         "order_id":        row[0],
         "product_id":      row[1],
         "user_id":         row[2],
-        "status":          row[3],
+        "status":          real_status,
         "created_at":      row[4],
         "days_since":      days_since,
         "delivery_status": delivery_status,
@@ -155,6 +167,7 @@ def get_order(order_id: str) -> Optional[dict]:
         "price":           row[6],
         "author":          row[7],
     }
+
 
 
 def get_user_orders(user_id: str = "default_user") -> List[dict]:
