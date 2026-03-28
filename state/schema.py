@@ -1,4 +1,5 @@
-from typing import TypedDict, List, Optional, Literal
+from typing import TypedDict, List, Optional, Literal, Annotated
+import operator
 
 class ProductItem(TypedDict):
     id: int
@@ -20,44 +21,44 @@ class ResearchData(TypedDict):
     summary: str
 
 class ComparisonResult(TypedDict):
-    ranked_products: List[dict]   # sorted best → worst
+    ranked_products: List[dict]
     best_choice_id: int
-    scoring_table: List[dict]     # price_score, rating_score, difficulty_score
+    scoring_table: List[dict]
     reasoning: str
 
 class EcommerceState(TypedDict):
     # Input
     user_query: str
-    conversation_history: List[dict]      # for Phase 6 memory
+    conversation_history: List[dict]
 
-    # Planner outputs
-    intent: Literal["recommendation", "order", "return", "track", "compare", "faq"]
-    plan: List[str]                        # ["search", "research", "compare", "recommend"]
-    budget: Optional[float]               # extracted from query e.g. 1000.0
-    category: Optional[str]              # e.g. "machine learning"
+    # Planner
+    intent: str
+    plan: List[str]
+    budget: Optional[float]
+    category: Optional[str]
 
-    # Search Agent outputs
+    # Search
     product_list: List[ProductItem]
 
-    # Research Agent outputs
-    research_data: List[ResearchData]
+    # Research — Annotated with operator.add so parallel results get MERGED
+    research_data: Annotated[List[ResearchData], operator.add]
 
-    # Comparison Agent outputs
+    # Comparison
     comparison_result: Optional[ComparisonResult]
 
-    # Recommendation Agent outputs
+    # Recommendation
     final_answer: str
     recommended_product_id: Optional[int]
 
-    # Critic Agent outputs
-    validation_score: float               # 0.0 to 1.0
-    validation_feedback: Optional[str]   # critique if score < threshold
-    retry_count: int                      # guard against infinite loops
+    # Critic
+    validation_score: float
+    validation_feedback: Optional[str]
+    retry_count: int
 
-    # Action Agent outputs
-    order_status: Optional[str]          # "placed", "failed", "pending"
+    # Action
+    order_status: Optional[str]
     order_id: Optional[str]
 
     # System
     error: Optional[str]
-    current_node: str                    # tracks which agent is running (for UI)
+    current_node: str
