@@ -458,9 +458,10 @@ books = [
 
 
 def create_database():
-    conn = sqlite3.connect(DB_PATH)
+    conn   = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
+    # ── Products table ──────────────────────────────────────────────────────
     cursor.execute("DROP TABLE IF EXISTS products")
     cursor.execute("""
         CREATE TABLE products (
@@ -475,37 +476,52 @@ def create_database():
         )
     """)
 
+    # ── Orders table ────────────────────────────────────────────────────────
     cursor.execute("DROP TABLE IF EXISTS orders")
     cursor.execute("""
         CREATE TABLE orders (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_id    TEXT UNIQUE NOT NULL,
             product_id  INTEGER NOT NULL,
-            user_id     TEXT NOT NULL,
-            status      TEXT DEFAULT 'placed',
+            user_id     TEXT NOT NULL DEFAULT 'default_user',
+            status      TEXT NOT NULL DEFAULT 'confirmed',
             created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (product_id) REFERENCES products(id)
         )
     """)
 
+    # ── Returns table ───────────────────────────────────────────────────────
+    cursor.execute("DROP TABLE IF EXISTS returns")
+    cursor.execute("""
+        CREATE TABLE returns (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            return_id    TEXT UNIQUE NOT NULL,
+            order_id     TEXT NOT NULL,
+            user_id      TEXT NOT NULL DEFAULT 'default_user',
+            reason       TEXT,
+            status       TEXT NOT NULL DEFAULT 'initiated',
+            created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY  (order_id) REFERENCES orders(order_id)
+        )
+    """)
+
+    # ── Seed books ──────────────────────────────────────────────────────────
     import json
     for book in books:
         cursor.execute("""
             INSERT INTO products (title, author, price, rating, category, description, reviews)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         """, (
-            book["title"],
-            book["author"],
-            book["price"],
-            book["rating"],
-            book["category"],
-            book["description"],
-            json.dumps(book["reviews"])   # store list as JSON string
+            book["title"], book["author"], book["price"],
+            book["rating"], book["category"], book["description"],
+            json.dumps(book["reviews"])
         ))
 
     conn.commit()
     conn.close()
     print(f"✅ Database created at: {DB_PATH}")
     print(f"✅ {len(books)} books seeded successfully")
+    print(f"✅ orders + returns tables created")
 
 
 if __name__ == "__main__":
