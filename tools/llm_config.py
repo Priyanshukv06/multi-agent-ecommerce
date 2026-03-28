@@ -9,14 +9,14 @@ nvidia_llm = ChatNVIDIA(
     model="meta/llama-4-maverick-17b-128e-instruct",
     nvidia_api_key=os.getenv("NVIDIA_API_KEY"),
     temperature=0.3,
-    max_tokens=2048,
+    max_completion_tokens=2048,
 )
 
 nvidia_fast = ChatNVIDIA(
     model="meta/llama3-70b-instruct",
     nvidia_api_key=os.getenv("NVIDIA_API_KEY"),
     temperature=0.1,
-    max_tokens=2048,
+    max_completion_tokens=1024,
 )
 
 # No timeout param — not valid for ChatGroq, causes UserWarning
