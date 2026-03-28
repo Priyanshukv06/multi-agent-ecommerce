@@ -2,10 +2,13 @@ import streamlit as st
 import requests
 import uuid
 import time
+import json
+import os
 
-API_BASE = "http://localhost:8000/api/v1"
+API_BASE      = "http://localhost:8000/api/v1"
+SESSIONS_FILE = "data/sessions.json"
 
-# ── Page Config ─────────────────────────────────────────────────────────────
+# ── Page Config ──────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="AI Book Store",
     page_icon="📚",
@@ -16,10 +19,8 @@ st.set_page_config(
 # ── Custom CSS ───────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-    /* Main background */
     .stApp { background-color: #0f1117; }
 
-    /* Chat bubbles */
     .user-bubble {
         background: #1e3a5f;
         border-radius: 18px 18px 4px 18px;
@@ -43,8 +44,6 @@ st.markdown("""
         float: left;
         clear: both;
     }
-
-    /* Product card */
     .product-card {
         background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
         border: 1px solid #0f3460;
@@ -58,10 +57,7 @@ st.markdown("""
         color: #e94560;
         margin-bottom: 4px;
     }
-    .product-meta {
-        font-size: 13px;
-        color: #a0a0b0;
-    }
+    .product-meta { font-size: 13px; color: #a0a0b0; }
     .price-badge {
         background: #0f3460;
         color: #e94560;
@@ -77,50 +73,44 @@ st.markdown("""
         border-radius: 20px;
         font-size: 13px;
     }
-
-    /* Score bar */
-    .score-bar {
-        background: #16213e;
-        border-radius: 6px;
-        padding: 10px 14px;
-        margin: 4px 0;
-        border-left: 3px solid #e94560;
-        font-size: 13px;
-        color: #c0c0d0;
-    }
-
-    /* Sidebar */
-    .sidebar-header {
-        font-size: 18px;
-        font-weight: 700;
-        color: #e94560;
-        margin-bottom: 12px;
-    }
-
-    /* Input area */
     .stTextInput input {
         background: #1a1a2e !important;
         border: 1px solid #0f3460 !important;
         color: #e0e0e0 !important;
         border-radius: 12px !important;
     }
-
-    /* Suggestion chips */
-    .chip-container { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
-    .chip {
-        background: #16213e;
-        border: 1px solid #0f3460;
-        border-radius: 20px;
-        padding: 6px 14px;
-        font-size: 13px;
-        color: #a0c4ff;
-        cursor: pointer;
-    }
-
-    /* Clear floats */
     .clearfix::after { content: ""; display: table; clear: both; }
 </style>
 """, unsafe_allow_html=True)
+
+
+# ── Session File Helpers ─────────────────────────────────────────────────────
+def load_sessions() -> dict:
+    if not os.path.exists(SESSIONS_FILE):
+        return {}
+    try:
+        with open(SESSIONS_FILE, "r") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_session(session_id: str, label: str):
+    sessions = load_sessions()
+    sessions[session_id] = {
+        "label":      label,
+        "created_at": time.strftime("%d %b %Y %H:%M")
+    }
+    os.makedirs("data", exist_ok=True)
+    with open(SESSIONS_FILE, "w") as f:
+        json.dump(sessions, f, indent=2)
+
+
+def delete_saved_session(session_id: str):
+    sessions = load_sessions()
+    sessions.pop(session_id, None)
+    with open(SESSIONS_FILE, "w") as f:
+        json.dump(sessions, f, indent=2)
 
 
 # ── Session State Init ───────────────────────────────────────────────────────
@@ -134,6 +124,16 @@ if "last_order"   not in st.session_state:
     st.session_state.last_order   = None
 if "ranked"       not in st.session_state:
     st.session_state.ranked       = []
+
+# ── Auto-register session if messages exist but not saved ────────────────────
+if st.session_state.messages:
+    saved = load_sessions()
+    if st.session_state.session_id not in saved:
+        first_user_msg = next(
+            (m["content"] for m in st.session_state.messages if m["role"] == "user"),
+            "Session"
+        )
+        save_session(st.session_state.session_id, label=first_user_msg[:40])
 
 
 # ── API Helpers ──────────────────────────────────────────────────────────────
@@ -169,7 +169,7 @@ def get_history() -> list:
 
 def get_products(category=None, max_price=None) -> list:
     try:
-        params   = {}
+        params = {}
         if category:  params["category"]  = category
         if max_price: params["max_price"] = max_price
         response = requests.get(f"{API_BASE}/products", params=params, timeout=10)
@@ -242,19 +242,16 @@ def handle_query(query: str):
     if not query.strip():
         return
 
-    # Add user message
     st.session_state.messages.append({"role": "user", "content": query})
 
-    # Call API with spinner
     with st.spinner("🤖 Thinking..."):
-        start = time.time()
-        result = call_chat(query)
+        start   = time.time()
+        result  = call_chat(query)
         elapsed = round(time.time() - start, 1)
 
     answer = result.get("answer", "Sorry, something went wrong.")
     intent = result.get("intent", "")
 
-    # Store context
     if result.get("recommended_product"):
         st.session_state.last_product = result["recommended_product"]
     if result.get("order_id"):
@@ -262,7 +259,6 @@ def handle_query(query: str):
     if result.get("ranked_products"):
         st.session_state.ranked = result["ranked_products"]
 
-    # Add bot message with metadata
     st.session_state.messages.append({
         "role":    "assistant",
         "content": answer,
@@ -271,20 +267,22 @@ def handle_query(query: str):
         "data":    result
     })
 
+    # ── Save session after every user message ────────────────────────────────
+    saved = load_sessions()
+    if st.session_state.session_id not in saved:
+        save_session(st.session_state.session_id, label=query[:40])
+
 
 # ════════════════════════════════════════════════════════════════════════════
 # SIDEBAR
 # ════════════════════════════════════════════════════════════════════════════
 with st.sidebar:
-    st.markdown('<div class="sidebar-header">📚 AI Book Store</div>',
-                unsafe_allow_html=True)
+    st.markdown("### 📚 AI Book Store")
     st.caption(f"Session: `{st.session_state.session_id[:16]}...`")
-
     st.divider()
 
     # ── Quick Actions ────────────────────────────────────────────────────────
     st.markdown("**⚡ Quick Actions**")
-
     quick_queries = [
         "📘 Best ML book under ₹1000",
         "🧠 Compare deep learning books",
@@ -292,10 +290,9 @@ with st.sidebar:
         "📊 Data science books under ₹800",
         "📦 Show my orders",
     ]
-
     for q in quick_queries:
         if st.button(q, key=f"quick_{q}", use_container_width=True):
-            handle_query(q.split(" ", 1)[1])   # strip emoji prefix
+            handle_query(q.split(" ", 1)[1])
             st.rerun()
 
     st.divider()
@@ -315,7 +312,6 @@ with st.sidebar:
             st.caption(f"🏁 ETA: {order.get('eta')}")
             st.caption(f"📚 {order.get('title', '')[:40]}")
 
-    # Show last order if exists
     if st.session_state.last_order:
         st.info(f"Last order: `{st.session_state.last_order}`")
 
@@ -323,8 +319,8 @@ with st.sidebar:
 
     # ── Browse Products ───────────────────────────────────────────────────────
     st.markdown("**🔎 Browse by Category**")
-    categories = ["All", "machine learning", "deep learning", "python",
-                  "data science", "mathematics", "nlp"]
+    categories   = ["All", "machine learning", "deep learning", "python",
+                    "data science", "mathematics", "nlp"]
     selected_cat = st.selectbox("Category", categories, label_visibility="collapsed")
     max_price    = st.slider("Max Price (₹)", 300, 1500, 1500, step=50)
 
@@ -340,21 +336,89 @@ with st.sidebar:
 
     st.divider()
 
-    # ── Session Controls ──────────────────────────────────────────────────────
-    st.markdown("**⚙️ Session**")
+    # ── Session Controls ─────────────────────────────────────────────────────
+    st.markdown("**⚙️ Sessions**")
     history_count = len(get_history())
-    st.caption(f"💬 {history_count} messages in memory")
+    st.caption(f"💬 {history_count} messages · Current session")
 
-    if st.button("🗑️ Clear Chat", use_container_width=True, type="secondary"):
+    if st.button("➕ New Session", use_container_width=True):
+        # Save current session before switching
+        if st.session_state.messages:
+            first_user_msg = next(
+                (m["content"] for m in st.session_state.messages
+                 if m["role"] == "user"),
+                "Session"
+            )
+            save_session(st.session_state.session_id, label=first_user_msg[:40])
+
+        st.session_state.session_id   = str(uuid.uuid4())
+        st.session_state.messages     = []
+        st.session_state.last_product = None
+        st.session_state.last_order   = None
+        st.session_state.ranked       = []
+        st.rerun()
+
+    if st.button("🗑️ Clear Current Chat", use_container_width=True, type="secondary"):
         clear_session()
         st.rerun()
+
+    st.divider()
+
+    # ── Past Sessions ─────────────────────────────────────────────────────────
+    st.markdown("**🕓 Past Sessions**")
+    saved_sessions = load_sessions()
+
+    if not saved_sessions:
+        st.caption("No saved sessions yet.\nStart chatting to create one!")
+    else:
+        for sid, meta in list(saved_sessions.items()):
+            is_current = sid == st.session_state.session_id
+            label      = meta.get("label", "Untitled")[:28]
+            created_at = meta.get("created_at", "")
+
+            col_btn, col_del = st.columns([4, 1])
+
+            with col_btn:
+                btn_label = f"{'✅ ' if is_current else '💬 '}{label}..."
+                if st.button(btn_label, key=f"sess_{sid}",
+                             use_container_width=True,
+                             disabled=is_current):
+                    # Switch to this session
+                    st.session_state.session_id   = sid
+                    st.session_state.last_product = None
+                    st.session_state.last_order   = None
+                    st.session_state.ranked       = []
+
+                    # Reload messages from API memory
+                    history = requests.get(
+                        f"{API_BASE}/history/{sid}?limit=50",
+                        timeout=10
+                    ).json()
+                    st.session_state.messages = [
+                        {
+                            "role":    h["role"],
+                            "content": h["content"],
+                            "intent":  h.get("intent", ""),
+                            "elapsed": None,
+                            "data":    {}
+                        }
+                        for h in history
+                    ]
+                    st.rerun()
+
+            with col_del:
+                if st.button("🗑", key=f"del_{sid}"):
+                    delete_saved_session(sid)
+                    if sid == st.session_state.session_id:
+                        clear_session()
+                    st.rerun()
+
+            st.caption(f"🕐 {created_at}")
 
 
 # ════════════════════════════════════════════════════════════════════════════
 # MAIN CHAT AREA
 # ════════════════════════════════════════════════════════════════════════════
-
-# ── Header ───────────────────────────────────────────────────────────────────
 st.markdown("""
 <h1 style='text-align:center; color:#e94560; margin-bottom:4px;'>
     📚 AI Book Store
@@ -364,8 +428,7 @@ st.markdown("""
 </p>
 """, unsafe_allow_html=True)
 
-
-# ── Welcome message ───────────────────────────────────────────────────────────
+# ── Welcome Screen ────────────────────────────────────────────────────────────
 if not st.session_state.messages:
     st.markdown("""
     <div style='background:#1a1a2e; border:1px solid #2d2d4e; border-radius:12px;
@@ -381,16 +444,15 @@ if not st.session_state.messages:
     </div>
     """, unsafe_allow_html=True)
 
-    # Suggestion chips
     st.markdown("**Try asking:**")
     col1, col2, col3 = st.columns(3)
     suggestions = [
-        ("📘 ML under ₹1000",        "recommend a machine learning book under ₹1000"),
-        ("🧠 Compare deep learning",  "compare deep learning books"),
-        ("🐍 Best Python book",       "what is the best python programming book"),
-        ("📊 Data science books",     "suggest data science books"),
-        ("📦 Track my order",         "show my orders"),
-        ("🔁 Return an order",        "I want to return my last order"),
+        ("📘 ML under ₹1000",       "recommend a machine learning book under ₹1000"),
+        ("🧠 Compare deep learning", "compare deep learning books"),
+        ("🐍 Best Python book",      "what is the best python programming book"),
+        ("📊 Data science books",    "suggest data science books"),
+        ("📦 Track my orders",       "show my orders"),
+        ("🔁 Return an order",       "I want to return my last order"),
     ]
     for i, (label, query) in enumerate(suggestions):
         col = [col1, col2, col3][i % 3]
@@ -399,46 +461,33 @@ if not st.session_state.messages:
                 handle_query(query)
                 st.rerun()
 
-
 # ── Chat History ──────────────────────────────────────────────────────────────
-chat_container = st.container()
-with chat_container:
-    for msg in st.session_state.messages:
-        render_chat_message(msg["role"], msg["content"])
+for msg in st.session_state.messages:
+    render_chat_message(msg["role"], msg["content"])
 
-        # Show product card after recommendation
-        if msg["role"] == "assistant":
-            data   = msg.get("data", {})
-            intent = msg.get("intent", "")
+    if msg["role"] == "assistant":
+        data   = msg.get("data", {})
+        intent = msg.get("intent", "")
 
-            # Recommended product card
-            if data.get("recommended_product") and intent in ("recommendation", "compare", "order"):
-                with st.expander("📗 Recommended Book", expanded=True):
-                    render_product_card(data["recommended_product"])
+        if data.get("recommended_product") and intent in ("recommendation", "compare", "order"):
+            with st.expander("📗 Recommended Book", expanded=True):
+                render_product_card(data["recommended_product"])
 
-            # Ranked products comparison table
-            if data.get("ranked_products") and len(data["ranked_products"]) > 1:
-                with st.expander(f"📊 Comparison — {len(data['ranked_products'])} books scored"):
-                    for p in data["ranked_products"]:
-                        render_product_card(p, show_scores=True, rank=p.get("rank"))
+        if data.get("ranked_products") and len(data["ranked_products"]) > 1:
+            with st.expander(f"📊 Comparison — {len(data['ranked_products'])} books scored"):
+                for p in data["ranked_products"]:
+                    render_product_card(p, show_scores=True, rank=p.get("rank"))
 
-            # Order confirmation
-            if data.get("order_id") and intent == "order":
-                st.success(f"✅ Order placed: `{data['order_id']}`")
-                st.session_state.last_order = data["order_id"]
+        if data.get("order_id") and intent == "order":
+            st.success(f"✅ Order placed: `{data['order_id']}`")
+            st.session_state.last_order = data["order_id"]
 
-            # Response time
-            if msg.get("elapsed"):
-                st.caption(f"⏱️ {msg['elapsed']}s · Intent: `{intent}`")
-
+        if msg.get("elapsed"):
+            st.caption(f"⏱️ {msg['elapsed']}s · Intent: `{intent}`")
 
 # ── Chat Input ────────────────────────────────────────────────────────────────
 st.divider()
-col_input, col_send = st.columns([5, 1])
-
-with col_input:
-    user_input = st.chat_input("Ask me about books, orders, or anything...")
-
+user_input = st.chat_input("Ask me about books, orders, or anything...")
 if user_input:
     handle_query(user_input)
     st.rerun()
