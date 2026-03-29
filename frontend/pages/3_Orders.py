@@ -1,10 +1,10 @@
 import streamlit as st
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from utils.api     import track_order, initiate_return, get_history
-from utils.session import init_session
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.join(ROOT, 'frontend'))
 
 st.set_page_config(
     page_title="My Orders — AI Book Store",
@@ -13,397 +13,328 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+from utils.session import require_login, render_sidebar_user
+from utils.api     import initiate_return
+from auth.auth     import get_user_orders
+
+user = require_login()
+render_sidebar_user()
+
+
+# ── Styles ────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
     .stApp { background-color: #0f1117; }
     .page-title {
-        font-size: 32px; font-weight: 800;
-        color: #e94560; margin-bottom: 4px;
+        font-size: 32px; font-weight: 800; color: #e94560; margin-bottom: 4px;
     }
     .order-card {
         background: linear-gradient(135deg, #1a1a2e, #16213e);
-        border: 1px solid #0f3460;
-        border-radius: 14px;
-        padding: 20px;
-        margin-bottom: 16px;
+        border: 1px solid #0f3460; border-radius: 14px;
+        padding: 18px; margin-bottom: 14px;
     }
-    .order-id {
-        font-family: monospace; font-size: 13px;
-        color: #c084fc; background: #2d1a3e;
-        padding: 2px 8px; border-radius: 6px;
+    .order-title  { font-size: 17px; font-weight: 700; color: #e94560; }
+    .order-meta   { font-size: 13px; color: #a0a0b0; margin: 3px 0; }
+    .order-id     { font-family: monospace; color: #c084fc; font-size: 12px; }
+    .tl-done      { padding: 6px 0; color: #4caf50; }
+    .tl-current   {
+        padding: 6px 0 6px 10px; color: #e94560;
+        border-left: 3px solid #e94560;
+        border-radius: 4px; background: #1a1a2e;
     }
-    .order-title {
-        font-size: 18px; font-weight: 700;
-        color: #e0e0e0; margin: 8px 0 4px;
-    }
-    .status-confirmed    { color: #60a5fa; }
-    .status-shipped      { color: #f59e0b; }
-    .status-delivered    { color: #4caf50; }
-    .status-cancelled    { color: #ef4444; }
-    .status-return       { color: #f97316; }
-    .timeline-done  {
-        padding: 6px 0 6px 12px;
-        border-left: 2px solid #4caf50;
-        color: #4caf50; font-size: 14px;
-    }
-    .timeline-current {
-        padding: 6px 0 6px 12px;
-        border-left: 2px solid #e94560;
-        color: #e94560; font-size: 14px;
-        font-weight: 700;
-    }
-    .timeline-pending {
-        padding: 6px 0 6px 12px;
-        border-left: 2px solid #2d2d4e;
-        color: #404060; font-size: 14px;
-    }
-    .empty-state {
-        text-align: center; padding: 60px 20px; color: #404060;
-    }
-    .return-box {
-        background: #1a1208; border: 1px solid #f97316;
-        border-radius: 10px; padding: 14px; margin-top: 10px;
-    }
+    .tl-pending   { padding: 6px 0; color: #404060; }
+    .empty-state  { text-align: center; padding: 60px 20px; color: #404060; }
 </style>
 """, unsafe_allow_html=True)
 
-init_session()
 
-# ── State Machine Config ──────────────────────────────────────────────────────
-ACTIVE_STATES = [
-    ("confirmed",        "📦", "Order Confirmed",     "Confirmed and being packed"),
-    ("packed",           "📫", "Packed",              "Packed and ready to ship"),
-    ("shipped",          "🚚", "Shipped",             "In transit to your location"),
-    ("out_for_delivery", "🏍️",  "Out for Delivery",   "With delivery partner today"),
-    ("delivered",        "✅", "Delivered",           "Successfully delivered"),
-]
+# ── Constants ─────────────────────────────────────────────────────────────────
+ORDER_FLOW  = ['confirmed', 'packed', 'shipped', 'out_for_delivery', 'delivered']
+RETURN_FLOW = ['return_initiated', 'pickup_scheduled', 'picked_up', 'refunded']
 
-RETURN_STATES = [
-    ("return_initiated", "🔄", "Return Initiated",    "Awaiting pickup scheduling"),
-    ("pickup_scheduled", "📅", "Pickup Scheduled",    "Pickup scheduled within 2 days"),
-    ("picked_up",        "📤", "Picked Up",           "Item picked up, processing refund"),
-    ("refunded",         "💰", "Refund Processed",    "Refund credited in 3-5 business days"),
-]
+STEP_META = {
+    'confirmed':        ('✅', 'Order Confirmed'),
+    'packed':           ('📦', 'Packed'),
+    'shipped':          ('🚚', 'Shipped'),
+    'out_for_delivery': ('🏠', 'Out for Delivery'),
+    'delivered':        ('🎉', 'Delivered'),
+    'cancelled':        ('❌', 'Cancelled'),
+    'return_initiated': ('↩️', 'Return Initiated'),
+    'pickup_scheduled': ('📅', 'Pickup Scheduled'),
+    'picked_up':        ('📬', 'Picked Up'),
+    'refunded':         ('💰', 'Refund Processed'),
+}
 
 STATUS_COLORS = {
-    "confirmed":        "#60a5fa",
-    "packed":           "#60a5fa",
-    "shipped":          "#f59e0b",
-    "out_for_delivery": "#f59e0b",
-    "delivered":        "#4caf50",
-    "cancelled":        "#ef4444",
-    "return_initiated": "#f97316",
-    "pickup_scheduled": "#f97316",
-    "picked_up":        "#f97316",
-    "refunded":         "#4caf50",
+    'confirmed':        '#f59e0b',
+    'packed':           '#60a5fa',
+    'shipped':          '#a78bfa',
+    'out_for_delivery': '#fb923c',
+    'delivered':        '#4ade80',
+    'cancelled':        '#f87171',
+    'return_initiated': '#fbbf24',
+    'pickup_scheduled': '#34d399',
+    'picked_up':        '#67e8f9',
+    'refunded':         '#4ade80',
 }
 
-STATE_MESSAGES = {
-    "confirmed":        "Your order is confirmed and being packed.",
-    "packed":           "Your order has been packed and is ready to ship.",
-    "shipped":          "Your order is on its way!",
-    "out_for_delivery": "Your order will be delivered today.",
-    "delivered":        "Your order has been delivered. Enjoy your book! 🎉",
-    "cancelled":        "This order has been cancelled.",
-    "return_initiated": "Return initiated. Pickup within 2 business days.",
-    "pickup_scheduled": "Pickup has been scheduled.",
-    "picked_up":        "Your item has been picked up. Refund in progress.",
-    "refunded":         "Refund processed. Credit in 3-5 business days.",
-}
+ALL_STATUSES = ['All'] + ORDER_FLOW + ['cancelled'] + RETURN_FLOW
+
+RETURNABLE = {'delivered'}
+NON_RETURNABLE = {'cancelled', 'return_initiated', 'pickup_scheduled', 'picked_up', 'refunded'}
 
 
-def get_state_list(status: str):
-    return_statuses = {s[0] for s in RETURN_STATES}
-    return RETURN_STATES if status in return_statuses else ACTIVE_STATES
-
-
+# ── Timeline renderer ─────────────────────────────────────────────────────────
 def render_timeline(status: str):
-    """Pure state machine timeline — zero AI calls."""
-    states     = get_state_list(status)
-    status_ids = [s[0] for s in states]
+    is_return = status in RETURN_FLOW
+    is_cancel = status == 'cancelled'
+    flow      = RETURN_FLOW if is_return else ORDER_FLOW
+
+    if is_cancel:
+        st.markdown(
+            '<div class="tl-current">❌ &nbsp;<b>Cancelled</b></div>',
+            unsafe_allow_html=True
+        )
+        return
 
     try:
-        current_idx = status_ids.index(status)
+        current_idx = flow.index(status)
     except ValueError:
         current_idx = 0
 
-    for i, (state_id, icon, label, desc) in enumerate(states):
+    for i, step in enumerate(flow):
+        icon, label = STEP_META.get(step, ('•', step.replace('_', ' ').title()))
         if i < current_idx:
             st.markdown(
-                f'<div class="timeline-done">✅ {label}</div>',
+                f'<div class="tl-done">{icon} &nbsp;{label}</div>',
                 unsafe_allow_html=True
             )
         elif i == current_idx:
             st.markdown(
-                f'<div class="timeline-current">'
-                f'{icon} {label} &nbsp;<span style="font-size:11px; '
-                f'background:#e94560; color:white; padding:2px 6px; '
-                f'border-radius:10px;">CURRENT</span>'
-                f'<br><span style="font-weight:400; font-size:12px; '
-                f'color:#a0a0b0;">{desc}</span></div>',
+                f'<div class="tl-current">{icon} &nbsp;<b>{label}</b>'
+                f'&nbsp;<span style="font-size:10px;color:#606070;">● now</span></div>',
                 unsafe_allow_html=True
             )
         else:
             st.markdown(
-                f'<div class="timeline-pending">⬜ {label}</div>',
+                f'<div class="tl-pending">○ &nbsp;{label}</div>',
                 unsafe_allow_html=True
             )
 
 
-def render_order_card(order: dict, idx: int):
-    """Render full order card with timeline + return option."""
-    status    = order.get("status", "confirmed")
-    color     = STATUS_COLORS.get(status, "#60a5fa")
-    order_id  = order.get("order_id", "")
-    is_return = status in {s[0] for s in RETURN_STATES}
-
-    with st.container():
-        st.markdown(f"""
-        <div class="order-card">
-            <div style="display:flex; justify-content:space-between;
-                        align-items:center; flex-wrap:wrap; gap:8px;">
-                <span class="order-id">{order_id}</span>
-                <span style="background:{color}22; color:{color};
-                             padding:4px 12px; border-radius:20px;
-                             font-size:13px; font-weight:700;">
-                    ● {status.replace("_", " ").title()}
-                </span>
-            </div>
-            <div class="order-title">{order.get("title", "")[:55]}</div>
-            <div style="color:#808090; font-size:13px;">
-                ✍️ {order.get("author","")} &nbsp;|&nbsp;
-                💰 ₹{order.get("price","")} &nbsp;|&nbsp;
-                📅 Ordered: {order.get("created_at","")[:10]}
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-        # Status message
-        msg = STATE_MESSAGES.get(status, "Processing your order.")
-        if status == "delivered":
-            st.success(f"✅ {msg}")
-        elif status == "cancelled":
-            st.error(f"❌ {msg}")
-        elif is_return:
-            st.warning(f"🔄 {msg}")
-        else:
-            st.info(f"ℹ️ {msg}")
-
-        # Timeline + actions in two columns
-        col_timeline, col_actions = st.columns([3, 2])
-
-        with col_timeline:
-            st.markdown("**📍 Order Progress**")
-            render_timeline(status)
-            if status not in ("delivered", "cancelled", "refunded"):
-                st.caption(f"🏁 Estimated Delivery: **{order.get('eta', 'N/A')}**")
-
-        with col_actions:
-            st.markdown("**⚡ Actions**")
-
-            # Track / Refresh
-            if st.button("🔄 Refresh Status", key=f"refresh_{idx}",
-                         use_container_width=True):
-                st.cache_data.clear()
-                st.rerun()
-
-            # Return button — only for eligible orders
-            returnable = status in ("confirmed", "packed", "shipped",
-                                    "out_for_delivery", "delivered")
-            if returnable:
-                with st.expander("↩️ Return this order"):
-                    st.markdown('<div class="return-box">', unsafe_allow_html=True)
-                    reason_options = [
-                        "Select a reason...",
-                        "Wrong item received",
-                        "Damaged or defective",
-                        "No longer needed",
-                        "Better price available",
-                        "Other",
-                    ]
-                    reason = st.selectbox(
-                        "Return reason",
-                        reason_options,
-                        key=f"reason_{idx}",
-                        label_visibility="collapsed"
-                    )
-                    if reason != "Select a reason...":
-                        if st.button("✅ Confirm Return",
-                                     key=f"confirm_return_{idx}",
-                                     use_container_width=True,
-                                     type="primary"):
-                            with st.spinner("Initiating return..."):
-                                result = initiate_return(
-                                    order_id,
-                                    reason,
-                                    st.session_state.session_id
-                                )
-                            if result.get("return_id"):
-                                st.success(
-                                    f"✅ Return initiated!\n\n"
-                                    f"**Return ID:** `{result['return_id']}`\n\n"
-                                    f"{result.get('message','')}"
-                                )
-                                st.rerun()
-                            elif result.get("detail"):
-                                st.error(f"❌ {result['detail']}")
-                    st.markdown('</div>', unsafe_allow_html=True)
-
-            # Already in return
-            if is_return:
-                st.info("↩️ Return in progress")
-
-            # Delivered — ask AI for next book
-            if status == "delivered":
-                if st.button("🤖 Recommend next book",
-                             key=f"ai_next_{idx}",
-                             use_container_width=True):
-                    st.session_state.ai_prefill = (
-                        f"I just finished reading '{order.get('title','')}'. "
-                        f"What should I read next?"
-                    )
-                    st.switch_page("pages/2_AI_Assistant.py")
-
-        st.divider()
+# ── Status badge ──────────────────────────────────────────────────────────────
+def status_badge(status: str) -> str:
+    color = STATUS_COLORS.get(status, '#808090')
+    label = STEP_META.get(status, ('', status.replace('_', ' ').title()))[1]
+    return (
+        f'<span style="background:#1a1a2e; color:{color}; '
+        f'border:1px solid {color}; border-radius:12px; '
+        f'padding:2px 10px; font-size:12px; font-weight:600;">'
+        f'{label}</span>'
+    )
 
 
 # ════════════════════════════════════════════════════════════════════════════
 # SIDEBAR
 # ════════════════════════════════════════════════════════════════════════════
 with st.sidebar:
-    st.markdown("### 📦 Orders")
+    st.markdown("### 📦 My Orders")
+    st.divider()
 
-    # Manual order lookup
-    st.markdown("**🔍 Track by Order ID**")
-    manual_id = st.text_input("Order ID", placeholder="ORD-00001",
-                              label_visibility="collapsed")
-    if st.button("Track", use_container_width=True) and manual_id:
-        st.session_state.manual_track = manual_id.upper().strip()
-        st.rerun()
+    filter_status = st.selectbox("Filter by Status", ALL_STATUSES, index=0)
 
     st.divider()
-    if st.button("🛍️ Browse Books",    use_container_width=True):
+    if st.button("🛍️ Browse Books",  use_container_width=True):
         st.switch_page("pages/1_Browse.py")
-    if st.button("🤖 AI Assistant",    use_container_width=True):
-        st.switch_page("pages/2_AI_Assistant.py")
-    if st.button("🏠 Home",            use_container_width=True):
+    if st.button("🤖 AI Assistant",  use_container_width=True):
+        st.switch_page("pages/2_AIAssistant.py")
+    if st.button("🛒 Cart",          use_container_width=True):
+        st.switch_page("pages/5_Cart.py")
+    if st.button("🏠 Home",          use_container_width=True):
         st.switch_page("app.py")
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# MAIN CONTENT
+# MAIN
 # ════════════════════════════════════════════════════════════════════════════
 st.markdown('<div class="page-title">📦 My Orders</div>', unsafe_allow_html=True)
-st.caption("Real-time order tracking — no AI needed here.")
+st.caption(f"Logged in as **{user['username']}** — showing only your orders")
 
-# ── Manual track override ─────────────────────────────────────────────────────
-if st.session_state.get("manual_track"):
-    order_id = st.session_state.manual_track
-    st.markdown(f"### 🔍 Tracking: `{order_id}`")
-    with st.spinner("Fetching order..."):
-        order = track_order(order_id)
+# Fetch orders for this user only
+all_orders = get_user_orders(user["id"])
 
-    if order.get("detail") or order.get("error"):
-        st.error(f"❌ Order `{order_id}` not found. Please check the Order ID.")
-    else:
-        render_order_card(order, idx=0)
+# Apply filter
+filtered = all_orders if filter_status == "All" \
+           else [o for o in all_orders if o["status"] == filter_status]
 
-    if st.button("← Back to All Orders"):
-        st.session_state.manual_track = None
-        st.rerun()
-    st.stop()
+# Summary metrics
+st.divider()
+m1, m2, m3, m4 = st.columns(4)
+with m1:
+    st.metric("Total Orders", len(all_orders))
+with m2:
+    delivered_count = sum(1 for o in all_orders if o["status"] == "delivered")
+    st.metric("Delivered", delivered_count)
+with m3:
+    active_count = sum(
+        1 for o in all_orders
+        if o["status"] in ('confirmed', 'packed', 'shipped', 'out_for_delivery')
+    )
+    st.metric("In Transit", active_count)
+with m4:
+    total_spent = sum(o.get("item_price", 0) * o.get("quantity", 1) for o in all_orders
+                      if o["status"] not in ('cancelled', 'refunded'))
+    st.metric("Total Spent", f"₹{total_spent:,.0f}")
+st.divider()
 
-
-# ── Load all orders from conversation memory ──────────────────────────────────
-history = get_history(st.session_state.session_id, limit=100)
-
-# Extract all unique ORD- IDs mentioned in assistant messages
-seen     = set()
-order_ids = []
-for h in history:
-    if h.get("role") == "assistant":
-        content = h.get("content", "")
-        import re
-        matches = re.findall(r"ORD-\d{5}", content)
-        for oid in matches:
-            if oid not in seen:
-                seen.add(oid)
-                order_ids.append(oid)
-
-# Also include last_order_id from session
-last = st.session_state.get("last_order_id")
-if last and last not in seen:
-    order_ids.insert(0, last)
+st.caption(f"{len(filtered)} order(s) shown")
 
 # ── Empty state ───────────────────────────────────────────────────────────────
-if not order_ids:
+if not filtered:
     st.markdown("""
     <div class="empty-state">
-        <div style='font-size:56px;'>📭</div>
-        <div style='font-size:20px; font-weight:700;
-                    color:#e0e0e0; margin:12px 0 8px;'>
-            No orders yet
-        </div>
-        <div style='font-size:14px; color:#606070;'>
-            Browse books and place your first order!
+        <div style="font-size:52px;">📭</div>
+        <div style="font-size:20px; margin:12px 0;">No orders found</div>
+        <div style="font-size:14px;">
+            Try changing the filter, or go browse some books!
         </div>
     </div>
     """, unsafe_allow_html=True)
-
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("🛍️ Browse Books", use_container_width=True, type="primary"):
-            st.switch_page("pages/1_Browse.py")
-    with col2:
-        if st.button("🤖 Ask AI to recommend", use_container_width=True):
-            st.switch_page("pages/2_AI_Assistant.py")
+    if st.button("🛍️ Browse Books", type="primary"):
+        st.switch_page("pages/1_Browse.py")
     st.stop()
 
 
-# ── Tabs: All / Active / Delivered / Returns ──────────────────────────────────
-tab_all, tab_active, tab_delivered, tab_returns = st.tabs([
-    f"📋 All ({len(order_ids)})",
-    "🚚 Active",
-    "✅ Delivered",
-    "↩️ Returns"
-])
+# ── Order cards ───────────────────────────────────────────────────────────────
+# Group rows by order_id (one DB row per item, multiple items per order)
+from collections import defaultdict
+order_groups: dict = defaultdict(list)
+for row in filtered:
+    order_groups[row["order_id"]].append(row)
 
-# Fetch all orders
-with st.spinner("Loading orders..."):
-    orders = []
-    for oid in order_ids:
-        o = track_order(oid)
-        if not o.get("error") and not o.get("detail"):
-            orders.append(o)
+for order_id, items in order_groups.items():
+    first   = items[0]
+    status  = first["status"]
+    created = first["created_at"][:16] if first["created_at"] else "—"
+    total   = sum(r.get("item_price", 0) * r.get("quantity", 1) for r in items)
 
-return_statuses  = {"return_initiated","pickup_scheduled","picked_up","refunded"}
-active_statuses  = {"confirmed","packed","shipped","out_for_delivery"}
-delivered_status = {"delivered"}
+    with st.container():
+        st.markdown('<div class="order-card">', unsafe_allow_html=True)
 
-active_orders    = [o for o in orders if o.get("status") in active_statuses]
-delivered_orders = [o for o in orders if o.get("status") in delivered_status]
-return_orders    = [o for o in orders if o.get("status") in return_statuses]
+        # Header row
+        hcol1, hcol2 = st.columns([3, 1])
+        with hcol1:
+            st.markdown(
+                f'<div class="order-id">🆔 {order_id}</div>'
+                f'<div class="order-meta">📅 {created} &nbsp;|&nbsp; '
+                f'💰 ₹{total:,.0f} &nbsp;|&nbsp; '
+                f'{len(items)} item(s)</div>',
+                unsafe_allow_html=True
+            )
+        with hcol2:
+            st.markdown(status_badge(status), unsafe_allow_html=True)
 
-with tab_all:
-    if not orders:
-        st.info("No orders found.")
-    for i, order in enumerate(orders):
-        render_order_card(order, idx=i)
+        st.markdown("---")
 
-with tab_active:
-    if not active_orders:
-        st.info("No active orders right now.")
-    for i, order in enumerate(active_orders):
-        render_order_card(order, idx=100 + i)
+        # Items list + timeline side-by-side
+        col_items, col_timeline = st.columns([3, 2])
 
-with tab_delivered:
-    if not delivered_orders:
-        st.info("No delivered orders yet.")
-    for i, order in enumerate(delivered_orders):
-        render_order_card(order, idx=200 + i)
+        with col_items:
+            st.markdown("**📚 Items**")
+            for item in items:
+                st.markdown(
+                    f'<div class="order-title">{item["title"][:50]}</div>'
+                    f'<div class="order-meta">'
+                    f'✍️ {item.get("author","")}&nbsp;|&nbsp;'
+                    f'Qty: {item.get("quantity",1)}&nbsp;|&nbsp;'
+                    f'₹{item.get("item_price",0):,.0f}'
+                    f'</div>',
+                    unsafe_allow_html=True
+                )
+                st.markdown("")
 
-with tab_returns:
-    if not return_orders:
-        st.info("No returns initiated.")
-    for i, order in enumerate(return_orders):
-        render_order_card(order, idx=300 + i)
+        with col_timeline:
+            st.markdown("**🗺️ Progress**")
+            render_timeline(status)
+
+        st.markdown("")
+
+        # Action buttons
+        act1, act2, act3 = st.columns(3)
+
+        with act1:
+            if st.button("🔍 Track", key=f"trk_{order_id}",
+                         use_container_width=True):
+                st.session_state[f"expand_{order_id}"] = \
+                    not st.session_state.get(f"expand_{order_id}", False)
+                st.rerun()
+
+        with act2:
+            can_return = (status in RETURNABLE)
+            if can_return:
+                if st.button("↩️ Return", key=f"ret_{order_id}",
+                             use_container_width=True):
+                    st.session_state[f"return_open_{order_id}"] = True
+                    st.rerun()
+            elif status in NON_RETURNABLE:
+                st.button(
+                    "↩️ Returned" if status != 'cancelled' else "❌ Cancelled",
+                    key=f"ret_dis_{order_id}",
+                    use_container_width=True,
+                    disabled=True
+                )
+            else:
+                st.button("↩️ Return (not yet)",
+                          key=f"ret_na_{order_id}",
+                          use_container_width=True,
+                          disabled=True)
+
+        with act3:
+            if st.button("🤖 Ask AI", key=f"ai_{order_id}",
+                         use_container_width=True):
+                st.session_state["ai_prefill"] = \
+                    f"Tell me about my order {order_id}"
+                st.switch_page("pages/2_AIAssistant.py")
+
+        # Return reason form
+        if st.session_state.get(f"return_open_{order_id}"):
+            with st.form(key=f"return_form_{order_id}"):
+                st.markdown("**↩️ Initiate Return**")
+                reason = st.text_area(
+                    "Reason for return",
+                    placeholder="e.g. Wrong book delivered, damaged, etc.",
+                    max_chars=200
+                )
+                rc1, rc2 = st.columns(2)
+                with rc1:
+                    submitted = st.form_submit_button(
+                        "Submit Return", type="primary",
+                        use_container_width=True
+                    )
+                with rc2:
+                    cancelled_form = st.form_submit_button(
+                        "Cancel", use_container_width=True
+                    )
+
+                if submitted:
+                    if not reason.strip():
+                        st.error("Please enter a reason.")
+                    else:
+                        result = initiate_return(
+                            order_id, reason,
+                            st.session_state.get("session_id", "default"),
+                            user_id=user["id"]
+                        )
+                        if result.get("return_id") or result.get("status"):
+                            st.success("✅ Return initiated successfully!")
+                            st.session_state[f"return_open_{order_id}"] = False
+                            st.rerun()
+                        else:
+                            st.error(f"Failed: {result.get('error', 'Unknown error')}")
+
+                if cancelled_form:
+                    st.session_state[f"return_open_{order_id}"] = False
+                    st.rerun()
+
+        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown("")
