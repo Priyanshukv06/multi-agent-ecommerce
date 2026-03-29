@@ -1,25 +1,26 @@
 import requests
-import streamlit as st
 
 API_BASE = "http://localhost:8000/api/v1"
 
 
-def call_chat(query: str, session_id: str) -> dict:
+def call_chat(query: str, session_id: str, user_id: int = None) -> dict:
     try:
-        response = requests.post(f"{API_BASE}/chat", json={
-            "query":      query,
-            "session_id": session_id
-        }, timeout=120)
+        payload = {"query": query, "session_id": session_id}
+        if user_id:
+            payload["user_id"] = user_id
+        response = requests.post(f"{API_BASE}/chat", json=payload, timeout=120)
         return response.json()
     except Exception as e:
-        return {"answer": f"❌ API error: {str(e)}", "intent": "error"}
+        return {"answer": f"API error: {str(e)}", "intent": "error"}
 
 
 def get_products(category=None, max_price=None, limit=20) -> list:
     try:
         params = {"limit": limit}
-        if category:  params["category"]  = category
-        if max_price: params["max_price"] = max_price
+        if category:
+            params["category"] = category
+        if max_price:
+            params["max_price"] = max_price
         return requests.get(f"{API_BASE}/products", params=params, timeout=10).json()
     except Exception:
         return []
@@ -34,32 +35,44 @@ def get_product(product_id: int) -> dict:
 
 def get_categories() -> list:
     try:
-        return requests.get(f"{API_BASE}/products/meta/categories", timeout=10).json().get("categories", [])
+        return requests.get(
+            f"{API_BASE}/products/meta/categories", timeout=10
+        ).json().get("categories", [])
     except Exception:
         return []
 
 
 def get_price_range() -> dict:
     try:
-        return requests.get(f"{API_BASE}/products/meta/price-range", timeout=10).json()
+        return requests.get(
+            f"{API_BASE}/products/meta/price-range", timeout=10
+        ).json()
     except Exception:
         return {"min": 300, "max": 1500, "avg": 800}
 
 
-def place_order(product_id: int, session_id: str) -> dict:
+def place_order(product_id: int, session_id: str,
+                user_id: int = None, quantity: int = 1) -> dict:
     try:
-        return requests.post(f"{API_BASE}/order", json={
+        payload = {
             "product_id": product_id,
-            "session_id": session_id
-        }, timeout=10).json()
+            "session_id": session_id,
+            "quantity":   quantity,
+        }
+        if user_id:
+            payload["user_id"] = user_id
+        return requests.post(f"{API_BASE}/order", json=payload, timeout=10).json()
     except Exception as e:
         return {"error": str(e)}
 
 
-def place_bulk_orders(product_ids: list, session_id: str) -> list:
+def place_bulk_orders(items: list, session_id: str, user_id: int = None) -> list:
+    """items: list of dicts with keys 'id' and 'quantity'"""
     results = []
-    for pid in product_ids:
-        results.append(place_order(pid, session_id))
+    for item in items:
+        pid = item.get("id") if isinstance(item, dict) else item
+        qty = item.get("quantity", 1) if isinstance(item, dict) else 1
+        results.append(place_order(pid, session_id, user_id=user_id, quantity=qty))
     return results
 
 
@@ -70,32 +83,13 @@ def track_order(order_id: str) -> dict:
         return {"error": str(e)}
 
 
-def get_user_orders(session_id: str) -> list:
+def initiate_return(order_id: str, reason: str,
+                    session_id: str, user_id: int = None) -> dict:
     try:
-        # Reuse history endpoint to get orders from memory
-        response = requests.get(
-            f"{API_BASE}/history/{session_id}?limit=50", timeout=10
-        )
-        history = response.json()
-        # Extract unique order IDs from memory
-        order_ids = list({
-            h["content"].split("`")[1]
-            for h in history
-            if h.get("role") == "assistant"
-            and "ORD-" in h.get("content", "")
-        })
-        return order_ids
-    except Exception:
-        return []
-
-
-def initiate_return(order_id: str, reason: str, session_id: str) -> dict:
-    try:
-        return requests.post(f"{API_BASE}/return", json={
-            "order_id":   order_id,
-            "reason":     reason,
-            "session_id": session_id
-        }, timeout=10).json()
+        payload = {"order_id": order_id, "reason": reason, "session_id": session_id}
+        if user_id:
+            payload["user_id"] = user_id
+        return requests.post(f"{API_BASE}/return", json=payload, timeout=10).json()
     except Exception as e:
         return {"error": str(e)}
 

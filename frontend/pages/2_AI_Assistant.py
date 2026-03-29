@@ -1,21 +1,29 @@
 import streamlit as st
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from utils.api     import call_chat, get_history, clear_history, place_order
-from utils.session import (init_session, save_session, load_sessions,
-                           delete_saved_session, cart_total)
-import json
-import time
-import uuid
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.join(ROOT, 'frontend'))
 
-st.set_page_config(
+st.set_page_config(                                          # ← MOVED TO TOP
     page_title="AI Assistant — AI Book Store",
     page_icon="🤖",
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+from utils.api     import call_chat, get_history, clear_history, place_order
+from utils.session import (init_session, save_session, load_sessions,
+                           delete_saved_session, cart_total,
+                           require_login, render_sidebar_user)
+import json
+import time
+import uuid
+
+user = require_login()                                       # ← AFTER set_page_config
+render_sidebar_user()
+
 
 st.markdown("""
 <style>
@@ -82,7 +90,9 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+
 init_session()
+
 
 # ── Intent badge colors ───────────────────────────────────────────────────────
 INTENT_COLORS = {
@@ -113,7 +123,8 @@ def handle_query(query: str):
 
     with st.spinner("🤖 Analyzing your request..."):
         start  = time.time()
-        result = call_chat(query, st.session_state.session_id)
+        result = call_chat(query, st.session_state.session_id,
+                           user_id=user["id"])          # ← CHANGED: pass user_id
         elapsed = round(time.time() - start, 1)
 
     answer = result.get("answer", "Sorry, something went wrong.")
@@ -134,7 +145,6 @@ def handle_query(query: str):
         "data":    result
     })
 
-    # Auto-save session
     saved = load_sessions()
     if st.session_state.session_id not in saved:
         save_session(st.session_state.session_id, label=query[:40])
@@ -169,7 +179,8 @@ def render_rec_card(product: dict):
         if st.button("⚡ Buy Now", key=f"rec_buy_{pid}",
                      use_container_width=True, type="primary"):
             with st.spinner("Placing order..."):
-                result = place_order(pid, st.session_state.session_id)
+                result = place_order(pid, st.session_state.session_id,
+                                     user_id=user["id"])  # ← CHANGED: pass user_id
             if result.get("order_id"):
                 st.session_state.last_order_id = result["order_id"]
                 st.success(f"✅ Order placed! `{result['order_id']}`")
@@ -234,7 +245,6 @@ with st.sidebar:
 
     st.divider()
 
-    # ── Quick prompts ─────────────────────────────────────────────────────────
     st.markdown("**⚡ Quick Prompts**")
     quick = [
         ("📘 ML under ₹1000",      "recommend a machine learning book under ₹1000"),
@@ -251,7 +261,6 @@ with st.sidebar:
 
     st.divider()
 
-    # ── Session controls ──────────────────────────────────────────────────────
     st.markdown("**⚙️ Sessions**")
     st.caption(f"💬 {len(get_history(st.session_state.session_id))} messages")
 
@@ -262,11 +271,11 @@ with st.sidebar:
                  if m["role"] == "user"), "Session"
             )
             save_session(st.session_state.session_id, label=first[:40])
-        st.session_state.session_id   = str(uuid.uuid4())
-        st.session_state.messages     = []
-        st.session_state.last_product = None
+        st.session_state.session_id    = str(uuid.uuid4())
+        st.session_state.messages      = []
+        st.session_state.last_product  = None
         st.session_state.last_order_id = None
-        st.session_state.ranked       = []
+        st.session_state.ranked        = []
         st.rerun()
 
     if st.button("🗑️ Clear Chat", use_container_width=True, type="secondary"):
@@ -276,7 +285,6 @@ with st.sidebar:
 
     st.divider()
 
-    # ── Past sessions ─────────────────────────────────────────────────────────
     st.markdown("**🕓 Past Sessions**")
     saved = load_sessions()
 
@@ -297,7 +305,6 @@ with st.sidebar:
                     st.session_state.last_product  = None
                     st.session_state.last_order_id = None
                     st.session_state.ranked        = []
-
                     history = get_history(sid, limit=50)
                     st.session_state.messages = [
                         {
@@ -310,7 +317,6 @@ with st.sidebar:
                         for h in history
                     ]
                     st.rerun()
-
             with col_del:
                 if st.button("🗑", key=f"del_{sid}"):
                     delete_saved_session(sid)
@@ -322,7 +328,6 @@ with st.sidebar:
 
     st.divider()
 
-    # ── Navigation ────────────────────────────────────────────────────────────
     if st.button("🛍️ Browse Books",  use_container_width=True):
         st.switch_page("pages/1_Browse.py")
     if st.button("📦 My Orders",     use_container_width=True):
@@ -343,14 +348,12 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# ── Handle prefill from other pages ──────────────────────────────────────────
 if st.session_state.get("ai_prefill"):
     prefill = st.session_state.ai_prefill
     st.session_state.ai_prefill = None
     handle_query(prefill)
     st.rerun()
 
-# ── Welcome screen ────────────────────────────────────────────────────────────
 if not st.session_state.messages:
     st.markdown("""
     <div class="welcome-card">
@@ -368,18 +371,12 @@ if not st.session_state.messages:
     st.markdown("**Try asking:**")
     c1, c2, c3 = st.columns(3)
     suggestions = [
-        ("📘 ML under ₹1000",
-         "recommend a machine learning book under ₹1000"),
-        ("🧠 Compare DL books",
-         "compare deep learning books"),
-        ("🐍 Best Python book",
-         "what is the best python programming book?"),
-        ("📊 Data science",
-         "top data science books for beginners"),
-        ("📦 My orders",
-         "show my orders"),
-        ("🔁 Return order",
-         "I want to return my last order"),
+        ("📘 ML under ₹1000",      "recommend a machine learning book under ₹1000"),
+        ("🧠 Compare DL books",    "compare deep learning books"),
+        ("🐍 Best Python book",    "what is the best python programming book?"),
+        ("📊 Data science",        "top data science books for beginners"),
+        ("📦 My orders",           "show my orders"),
+        ("🔁 Return order",        "I want to return my last order"),
     ]
     for i, (label, query) in enumerate(suggestions):
         with [c1, c2, c3][i % 3]:
@@ -388,7 +385,6 @@ if not st.session_state.messages:
                 st.rerun()
     st.stop()
 
-# ── Chat messages ─────────────────────────────────────────────────────────────
 for msg in st.session_state.messages:
     if msg["role"] == "user":
         st.markdown(
@@ -408,14 +404,12 @@ for msg in st.session_state.messages:
         data   = msg.get("data", {})
         intent = msg.get("intent", "")
 
-        # ── Recommended product card ──────────────────────────────────────
         if data.get("recommended_product") and intent in (
             "recommendation", "compare", "order"
         ):
             with st.expander("📗 Recommended Book", expanded=True):
                 render_rec_card(data["recommended_product"])
 
-        # ── Comparison table ──────────────────────────────────────────────
         if data.get("ranked_products") and len(data["ranked_products"]) > 1:
             with st.expander(
                 f"📊 Full Comparison — {len(data['ranked_products'])} books",
@@ -423,7 +417,6 @@ for msg in st.session_state.messages:
             ):
                 render_comparison(data["ranked_products"])
 
-        # ── Order confirmation ────────────────────────────────────────────
         if data.get("order_id") and intent == "order":
             oid = data["order_id"]
             st.session_state.last_order_id = oid
@@ -434,7 +427,6 @@ for msg in st.session_state.messages:
                 if st.button("📦 Track It", key=f"track_{oid}"):
                     st.switch_page("pages/3_Orders.py")
 
-        # ── Metadata row ──────────────────────────────────────────────────
         elapsed = msg.get("elapsed")
         if elapsed:
             badge = intent_badge(intent) if intent else ""
@@ -444,7 +436,6 @@ for msg in st.session_state.messages:
                 unsafe_allow_html=True
             )
 
-# ── Chat input ────────────────────────────────────────────────────────────────
 st.divider()
 user_input = st.chat_input(
     "Ask me anything — recommend, compare, order, track, return..."

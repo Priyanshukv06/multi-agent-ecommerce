@@ -3,6 +3,17 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(__file__))
 
+from utils.session import show_login_register, render_sidebar_user
+
+# ── AUTH GATE ─────────────────────────────────────────────
+if "user" not in st.session_state or not st.session_state["user"]:
+    show_login_register()
+    st.stop()                     # ← stops rest of page rendering
+# ──────────────────────────────────────────────────────────
+
+# Render logged-in user info in sidebar
+render_sidebar_user()
+
 from utils.session import init_session
 from utils.api     import get_products, get_categories
 
