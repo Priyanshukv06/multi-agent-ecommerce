@@ -3,7 +3,7 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from utils.api     import get_products, get_categories, get_price_range, place_order, place_bulk_orders
+from utils.api     import get_products, get_categories, get_price_range, place_order
 from utils.session import init_session, add_to_cart, remove_from_cart, in_cart, clear_cart, cart_total
 
 st.set_page_config(
@@ -25,8 +25,7 @@ st.markdown("""
         border: 1px solid #0f3460;
         border-radius: 14px;
         padding: 16px;
-        margin-bottom: 12px;
-        height: 100%;
+        margin-bottom: 4px;
     }
     .book-title {
         font-size: 15px; font-weight: 700;
@@ -49,10 +48,6 @@ st.markdown("""
         padding: 3px 10px; border-radius: 20px;
         font-size: 12px;
     }
-    .cart-panel {
-        background: #1a1a2e; border: 1px solid #0f3460;
-        border-radius: 12px; padding: 16px;
-    }
     .empty-state {
         text-align: center; padding: 40px 20px;
         color: #404060;
@@ -63,15 +58,20 @@ st.markdown("""
         color: #4caf50; text-align: center;
         margin: 8px 0;
     }
+    .checkout-item {
+        background: #16213e; border-radius: 8px;
+        padding: 10px 14px; margin: 4px 0;
+        display: flex; justify-content: space-between;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 init_session()
 
 # ── Buy-now handler ───────────────────────────────────────────────────────────
-if "buy_now_product" in st.session_state and st.session_state.buy_now_product:
+if st.session_state.get("buy_now_product"):
     product = st.session_state.buy_now_product
-    with st.spinner(f"Placing order for {product['title'][:30]}..."):
+    with st.spinner(f"Placing order for '{product['title'][:30]}'..."):
         result = place_order(product["id"], st.session_state.session_id)
     if result.get("order_id"):
         st.session_state.last_order_id = result["order_id"]
@@ -86,33 +86,30 @@ if "buy_now_product" in st.session_state and st.session_state.buy_now_product:
 with st.sidebar:
     st.markdown("### 🔎 Filters")
 
-    # Category filter
-    categories  = ["All"] + get_categories()
+    categories   = ["All"] + get_categories()
     selected_cat = st.selectbox("Category", categories)
 
-    # Price filter
-    pr        = get_price_range()
-    min_p     = int(pr.get("min", 300))
-    max_p     = int(pr.get("max", 1500))
+    pr          = get_price_range()
+    min_p       = int(pr.get("min", 300))
+    max_p       = int(pr.get("max", 1500))
     price_range = st.slider(
         "Price Range (₹)",
         min_value=min_p, max_value=max_p,
         value=(min_p, max_p), step=50
     )
 
-    # Rating filter
     min_rating = st.select_slider(
-        "Min Rating",
+        "Min Rating ⭐",
         options=[4.0, 4.2, 4.4, 4.5, 4.7, 4.8, 4.9],
         value=4.0
     )
 
-    # Sort
-    sort_by = st.selectbox(
-        "Sort By",
-        ["Rating (High → Low)", "Price (Low → High)",
-         "Price (High → Low)", "Title (A → Z)"]
-    )
+    sort_by = st.selectbox("Sort By", [
+        "Rating (High → Low)",
+        "Price (Low → High)",
+        "Price (High → Low)",
+        "Title (A → Z)"
+    ])
 
     st.divider()
 
@@ -123,12 +120,12 @@ with st.sidebar:
     st.markdown(f"### 🛒 Cart ({len(cart)} items)")
 
     if not cart:
-        st.caption("Your cart is empty.\nBrowse books and add to cart!")
+        st.caption("Your cart is empty.\nAdd books to get started!")
     else:
         for p in cart:
             c1, c2 = st.columns([3, 1])
             with c1:
-                st.caption(f"📗 {p['title'][:28]}...")
+                st.caption(f"📗 {p['title'][:26]}...")
                 st.caption(f"₹{p['price']}")
             with c2:
                 if st.button("✕", key=f"rm_{p['id']}"):
@@ -153,6 +150,8 @@ with st.sidebar:
         st.switch_page("pages/2_AI_Assistant.py")
     if st.button("📦 My Orders", use_container_width=True):
         st.switch_page("pages/3_Orders.py")
+    if st.button("🏠 Home", use_container_width=True):
+        st.switch_page("app.py")
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -189,8 +188,14 @@ if st.session_state.get("checkout_trigger"):
 
         clear_cart()
 
-        if st.button("📦 Track My Orders", type="primary"):
-            st.switch_page("pages/3_Orders.py")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("📦 Track My Orders",
+                         use_container_width=True, type="primary"):
+                st.switch_page("pages/3_Orders.py")
+        with col2:
+            if st.button("🛍️ Continue Shopping", use_container_width=True):
+                st.rerun()
         st.stop()
 
 
@@ -198,65 +203,67 @@ if st.session_state.get("checkout_trigger"):
 # MAIN CONTENT
 # ════════════════════════════════════════════════════════════════════════════
 st.markdown('<div class="page-title">🛍️ Browse Books</div>', unsafe_allow_html=True)
-st.caption("No AI needed here — just browse, filter, and buy instantly.")
+st.caption("Browse, filter, and buy instantly — no AI needed here.")
 
-# ── Order success banner ───────────────────────────────────────────────────
+# ── Order success banner ──────────────────────────────────────────────────────
 if st.session_state.get("order_success"):
     result = st.session_state.order_success
     st.success(
         f"✅ Order placed! **Order ID:** `{result.get('order_id')}` — "
         f"{result.get('message', '')}"
     )
-    col1, col2 = st.columns(2)
-    with col1:
+    c1, c2, c3 = st.columns(3)
+    with c1:
         if st.button("📦 Track This Order"):
             st.switch_page("pages/3_Orders.py")
-    with col2:
+    with c2:
+        if st.button("🛍️ Keep Shopping"):
+            st.session_state.order_success = None
+            st.rerun()
+    with c3:
         if st.button("✕ Dismiss"):
             st.session_state.order_success = None
             st.rerun()
 
-# ── Search bar ─────────────────────────────────────────────────────────────
+# ── Search bar ────────────────────────────────────────────────────────────────
 search = st.text_input(
-    "🔍 Search books...",
-    placeholder="e.g. Python, Neural Networks, Scikit-Learn",
-    label_visibility="collapsed"
+    "search", label_visibility="collapsed",
+    placeholder="🔍 Search by title, author, or topic..."
 )
 
 st.divider()
 
-# ── Fetch + filter products ────────────────────────────────────────────────
+# ── Fetch + Filter ────────────────────────────────────────────────────────────
 cat      = None if selected_cat == "All" else selected_cat
 products = get_products(category=cat, max_price=price_range[1], limit=50)
 
-# Apply min price filter
+# Min price
 products = [p for p in products if p.get("price", 0) >= price_range[0]]
 
-# Apply min rating filter
+# Min rating
 products = [p for p in products if p.get("rating", 0) >= min_rating]
 
-# Apply search filter
+# Search
 if search.strip():
-    q = search.lower()
+    q        = search.lower()
     products = [
         p for p in products
-        if q in p.get("title",  "").lower()
-        or q in p.get("author", "").lower()
-        or q in p.get("category", "").lower()
+        if q in p.get("title",       "").lower()
+        or q in p.get("author",      "").lower()
+        or q in p.get("category",    "").lower()
         or q in p.get("description", "").lower()
     ]
 
-# Apply sort
+# Sort
 sort_map = {
-    "Rating (High → Low)":  lambda p: -p.get("rating", 0),
-    "Price (Low → High)":   lambda p:  p.get("price",  0),
-    "Price (High → Low)":   lambda p: -p.get("price",  0),
-    "Title (A → Z)":        lambda p:  p.get("title",  ""),
+    "Rating (High → Low)": lambda p: -p.get("rating", 0),
+    "Price (Low → High)":  lambda p:  p.get("price",  0),
+    "Price (High → Low)":  lambda p: -p.get("price",  0),
+    "Title (A → Z)":       lambda p:  p.get("title",  ""),
 }
 products = sorted(products, key=sort_map[sort_by])
 
-# ── Results count ──────────────────────────────────────────────────────────
-cart_ids = {p["id"] for p in st.session_state.get("cart", [])}
+# ── Results count ─────────────────────────────────────────────────────────────
 st.markdown(f"**{len(products)} books found**")
 
 if not products:
@@ -264,50 +271,47 @@ if not products:
     <div class="empty-state">
         <div style='font-size:48px;'>📭</div>
         <div style='font-size:18px; margin:8px 0;'>No books found</div>
-        <div style='font-size:14px;'>Try adjusting your filters or search query</div>
+        <div style='font-size:14px;'>Try adjusting filters or search query</div>
     </div>
     """, unsafe_allow_html=True)
     st.stop()
 
-# ── Book Grid (3 columns) ──────────────────────────────────────────────────
+# ── Book Grid — 3 columns ─────────────────────────────────────────────────────
 cols_per_row = 3
 for row_start in range(0, len(products), cols_per_row):
-    row_products = products[row_start : row_start + cols_per_row]
-    cols         = st.columns(cols_per_row)
+    row_books = products[row_start : row_start + cols_per_row]
+    cols      = st.columns(cols_per_row)
 
-    for col, book in zip(cols, row_products):
+    for col, book in zip(cols, row_books):
         pid = book["id"]
         with col:
-            # Card HTML
+
+            # ── Book card HTML ────────────────────────────────────────────
             st.markdown(f"""
             <div class="book-card">
                 <div class="book-title">{book["title"]}</div>
                 <div class="book-author">✍️ {book["author"]}</div>
-                <div style='margin-top:8px; display:flex; gap:6px; flex-wrap:wrap;'>
+                <div style='margin-top:8px; display:flex;
+                            gap:6px; flex-wrap:wrap;'>
                     <span class="badge-price">₹{book["price"]}</span>
                     <span class="badge-rating">⭐ {book["rating"]}/5</span>
-                    <span class="badge-cat">📂 {book["category"].title()}</span>
+                    <span class="badge-cat">
+                        📂 {book["category"].title()}
+                    </span>
                 </div>
             </div>
             """, unsafe_allow_html=True)
 
-            # Description expander
-            with st.expander("📄 Details"):
-                st.caption(book.get("description", ""))
-                st.markdown("**Ask AI about this book:**")
-                if st.button("🤖 Compare / Recommend", key=f"ai_{pid}",
-                             use_container_width=True):
-                    st.session_state.ai_prefill = (
-                        f"Tell me about '{book['title']}' "
-                        f"and compare it with similar books"
-                    )
-                    st.switch_page("pages/2_AI_Assistant.py")
+            # ── View Details button ───────────────────────────────────────
+            if st.button("📖 View Details", key=f"detail_{pid}",
+                         use_container_width=True):
+                st.session_state.detail_product_id = pid
+                st.switch_page("pages/4_Book_Detail.py")
 
-            # Buy + Cart buttons
+            # ── Cart + Buy buttons ────────────────────────────────────────
             b1, b2 = st.columns(2)
             with b1:
-                already_in_cart = in_cart(pid)
-                if already_in_cart:
+                if in_cart(pid):
                     if st.button("🛒 In Cart", key=f"cart_{pid}",
                                  use_container_width=True, type="secondary"):
                         remove_from_cart(pid)
@@ -318,7 +322,7 @@ for row_start in range(0, len(products), cols_per_row):
                         add_to_cart(book)
                         st.rerun()
             with b2:
-                if st.button("⚡ Buy Now", key=f"buy_{pid}",
+                if st.button("⚡ Buy", key=f"buy_{pid}",
                              use_container_width=True, type="primary"):
                     st.session_state.buy_now_product = book
                     st.rerun()
