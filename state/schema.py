@@ -11,6 +11,7 @@ class ProductItem(TypedDict):
     category:    str
     description: str
     reviews:     List[str]
+    cover_url:   Optional[str]
 
 
 class ResearchData(TypedDict):
