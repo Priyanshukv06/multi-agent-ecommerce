@@ -56,6 +56,7 @@ class ProductResponse(BaseModel):
     rating:      float
     category:    str
     description: str
+    cover_url:   str | None = None
 
 
 class RankedProduct(BaseModel):

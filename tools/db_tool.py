@@ -6,25 +6,32 @@ from typing import List, Optional
 from datetime import datetime, timedelta
 from state.schema import ProductItem
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "products.db")
+DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'products.db')
 
 
 def get_connection():
-    return sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 
-# ── Product Operations ─────────────────────────────────────────────────────
+# ── Product Operations ────────────────────────────────────────────────────────
 
 def search_products(
-    category: Optional[str] = None,
-    max_price: Optional[float] = None,
-    min_rating: float = 4.0,
-    limit: int = 5
+    category:   Optional[str]   = None,
+    max_price:  Optional[float] = None,
+    min_rating: float           = 4.0,
+    limit:      int             = 5
 ) -> List[ProductItem]:
     conn   = get_connection()
     cursor = conn.cursor()
 
-    query  = "SELECT id, title, author, price, rating, category, description, reviews FROM products WHERE 1=1"
+    query  = """
+        SELECT id, title, author, price, rating, category,
+               description, reviews, cover_url
+        FROM products
+        WHERE 1=1
+    """
     params = []
 
     if category:
@@ -43,9 +50,10 @@ def search_products(
 
     return [
         ProductItem(
-            id=r[0], title=r[1], author=r[2], price=r[3],
-            rating=r[4], category=r[5], description=r[6],
-            reviews=json.loads(r[7])
+            id=r["id"], title=r["title"], author=r["author"],
+            price=r["price"], rating=r["rating"], category=r["category"],
+            description=r["description"], reviews=json.loads(r["reviews"]),
+            cover_url=r["cover_url"]           # ← ADD
         )
         for r in rows
     ]
@@ -54,18 +62,23 @@ def search_products(
 def get_product_by_id(product_id: int) -> Optional[ProductItem]:
     conn   = get_connection()
     cursor = conn.cursor()
-    cursor.execute(
-        "SELECT id, title, author, price, rating, category, description, reviews FROM products WHERE id = ?",
-        (product_id,)
-    )
+    cursor.execute("""
+        SELECT id, title, author, price, rating, category,
+               description, reviews, cover_url
+        FROM products
+        WHERE id = ?
+    """, (product_id,))
     row = cursor.fetchone()
     conn.close()
+
     if not row:
         return None
+
     return ProductItem(
-        id=row[0], title=row[1], author=row[2], price=row[3],
-        rating=row[4], category=row[5], description=row[6],
-        reviews=json.loads(row[7])
+        id=row["id"], title=row["title"], author=row["author"],
+        price=row["price"], rating=row["rating"], category=row["category"],
+        description=row["description"], reviews=json.loads(row["reviews"]),
+        cover_url=row["cover_url"]             # ← ADD
     )
 
 
@@ -73,33 +86,31 @@ def get_all_categories() -> List[str]:
     conn   = get_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT DISTINCT category FROM products ORDER BY category")
-    rows   = cursor.fetchall()
+    rows = cursor.fetchall()
     conn.close()
-    return [r[0] for r in rows]
+    return [r["category"] for r in rows]
 
 
 def get_price_range() -> dict:
     conn   = get_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT MIN(price), MAX(price), AVG(price) FROM products")
-    row    = cursor.fetchone()
+    row = cursor.fetchone()
     conn.close()
     return {"min": row[0], "max": row[1], "avg": round(row[2], 2)}
 
 
-# ── Order Operations ───────────────────────────────────────────────────────
+# ── Order Operations ──────────────────────────────────────────────────────────
 
 def place_order(product_id: int, user_id: str = "default_user") -> str:
     conn   = get_connection()
     cursor = conn.cursor()
-
     cursor.execute("SELECT COUNT(*) FROM orders")
     count    = cursor.fetchone()[0]
-    order_id = f"ORD-{(count + 1):05d}"
-
+    order_id = f"ORD-{count + 1:05d}"
     cursor.execute(
-        "INSERT INTO orders (order_id, product_id, user_id, status) VALUES (?, ?, ?, 'confirmed')",
-        (order_id, product_id, user_id)
+        "INSERT INTO orders (order_id, product_id, user_id, status) VALUES (?, ?, ?, ?)",
+        (order_id, product_id, user_id, "confirmed")
     )
     conn.commit()
     conn.close()
@@ -122,52 +133,38 @@ def get_order(order_id: str) -> Optional[dict]:
     if not row:
         return None
 
-    created_at  = datetime.strptime(row[4][:19], "%Y-%m-%d %H:%M:%S")
-    days_since  = (datetime.now() - created_at).days
-    real_status = row[3]   # actual DB status column
+    created_at = datetime.strptime(row["created_at"][:19], "%Y-%m-%d %H:%M:%S")
+    days_since = (datetime.now() - created_at).days
 
-    # ── Real status takes priority over time simulation ──────────────────
-    if real_status == "return_initiated":
-        delivery_status = "Return Initiated — awaiting pickup"
-        location        = "Return Processing Center"
-    elif real_status == "cancelled":
-        delivery_status = "Order Cancelled"
-        location        = "N/A"
-    elif real_status == "delivered":
-        delivery_status = "Delivered ✅"
-        location        = "Delivered to customer"
+    if days_since == 0:
+        delivery_status = "Order Confirmed — being packed"
+        location        = "Seller Warehouse"
+    elif days_since == 1:
+        delivery_status = "Shipped — in transit"
+        location        = "Local Sorting Hub"
+    elif days_since == 2:
+        delivery_status = "Out for Delivery"
+        location        = "Delivery Partner"
     else:
-        # Time-based simulation for active orders
-        if days_since == 0:
-            delivery_status = "Order Confirmed — being packed"
-            location        = "Seller Warehouse"
-        elif days_since == 1:
-            delivery_status = "Shipped — in transit"
-            location        = "Local Sorting Hub"
-        elif days_since >= 2:
-            delivery_status = "Out for Delivery"
-            location        = "Delivery Partner"
-        else:
-            delivery_status = "Processing"
-            location        = "Warehouse"
+        delivery_status = "Processing"
+        location        = "Warehouse"
 
     eta = (created_at + timedelta(days=5)).strftime("%d %b %Y")
 
     return {
-        "order_id":        row[0],
-        "product_id":      row[1],
-        "user_id":         row[2],
-        "status":          real_status,
-        "created_at":      row[4],
+        "order_id":        row["order_id"],
+        "product_id":      row["product_id"],
+        "user_id":         row["user_id"],
+        "status":          row["status"],
+        "created_at":      row["created_at"],
         "days_since":      days_since,
         "delivery_status": delivery_status,
         "location":        location,
         "eta":             eta,
-        "title":           row[5],
-        "price":           row[6],
-        "author":          row[7],
+        "title":           row["title"],
+        "price":           row["price"],
+        "author":          row["author"],
     }
-
 
 
 def get_user_orders(user_id: str = "default_user") -> List[dict]:
@@ -184,8 +181,8 @@ def get_user_orders(user_id: str = "default_user") -> List[dict]:
     rows = cursor.fetchall()
     conn.close()
     return [
-        {"order_id": r[0], "status": r[1], "created_at": r[2],
-         "title": r[3], "price": r[4]}
+        {"order_id": r["order_id"], "status": r["status"],
+         "created_at": r["created_at"], "title": r["title"], "price": r["price"]}
         for r in rows
     ]
 
@@ -194,7 +191,7 @@ def cancel_order(order_id: str) -> bool:
     conn   = get_connection()
     cursor = conn.cursor()
     cursor.execute(
-        "UPDATE orders SET status = 'cancelled' WHERE order_id = ?",
+        "UPDATE orders SET status='cancelled' WHERE order_id=?",
         (order_id,)
     )
     affected = cursor.rowcount
@@ -203,56 +200,59 @@ def cancel_order(order_id: str) -> bool:
     return affected > 0
 
 
-# ── Return Operations ──────────────────────────────────────────────────────
+# ── Return Operations ─────────────────────────────────────────────────────────
 
-def initiate_return(order_id: str, reason: str = "Not specified",
-                    user_id: str = "default_user") -> Optional[str]:
-    """Returns return_id if eligible, None if not found or not eligible."""
+def initiate_return(
+    order_id: str,
+    reason:   str = "Not specified",
+    user_id:  str = "default_user"
+) -> Optional[str]:
+    """Returns return_id if eligible, None if not found, EXPIRED or ALREADY_CANCELLED."""
     conn   = get_connection()
     cursor = conn.cursor()
 
-    # Check order exists and belongs to user
     cursor.execute(
-        "SELECT status, created_at FROM orders WHERE order_id = ? AND user_id = ?",
+        "SELECT status, created_at FROM orders WHERE order_id=? AND user_id=?",
         (order_id, user_id)
     )
     row = cursor.fetchone()
-
     if not row:
         conn.close()
         return None
 
-    status, created_at = row
-    created_dt  = datetime.strptime(created_at[:19], "%Y-%m-%d %H:%M:%S")
-    days_since  = (datetime.now() - created_dt).days
-    return_window = 7   # 7-day return policy
+    status, created_at = row["status"], row["created_at"]
+    created_dt = datetime.strptime(created_at[:19], "%Y-%m-%d %H:%M:%S")
+    days_since = (datetime.now() - created_dt).days
 
-    if days_since > return_window:
+    if days_since > 7:
         conn.close()
         return "EXPIRED"
-
     if status == "cancelled":
         conn.close()
         return "ALREADY_CANCELLED"
 
     # Check if return already initiated
-    cursor.execute("SELECT return_id FROM returns WHERE order_id = ?", (order_id,))
+    cursor.execute(
+        "SELECT return_id FROM returns WHERE order_id=?",
+        (order_id,)
+    )
     existing = cursor.fetchone()
     if existing:
         conn.close()
-        return existing[0]   # return existing return_id
+        return existing["return_id"]
 
-    # Create return
+    # Create new return
     cursor.execute("SELECT COUNT(*) FROM returns")
     count     = cursor.fetchone()[0]
-    return_id = f"RET-{(count + 1):05d}"
+    return_id = f"RET-{count + 1:05d}"
 
     cursor.execute(
-        "INSERT INTO returns (return_id, order_id, user_id, reason, status) VALUES (?, ?, ?, ?, 'initiated')",
-        (return_id, order_id, user_id, reason)
+        "INSERT INTO returns (return_id, order_id, user_id, reason, status) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (return_id, order_id, user_id, reason, "initiated")
     )
     cursor.execute(
-        "UPDATE orders SET status = 'return_initiated' WHERE order_id = ?",
+        "UPDATE orders SET status='return_initiated' WHERE order_id=?",
         (order_id,)
     )
     conn.commit()
@@ -264,7 +264,8 @@ def get_return_status(return_id: str) -> Optional[dict]:
     conn   = get_connection()
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT return_id, order_id, status, reason, created_at FROM returns WHERE return_id = ?",
+        "SELECT return_id, order_id, status, reason, created_at "
+        "FROM returns WHERE return_id=?",
         (return_id,)
     )
     row = cursor.fetchone()
@@ -272,7 +273,9 @@ def get_return_status(return_id: str) -> Optional[dict]:
     if not row:
         return None
     return {
-        "return_id":  row[0], "order_id": row[1],
-        "status":     row[2], "reason":   row[3],
-        "created_at": row[4]
+        "return_id":  row["return_id"],
+        "order_id":   row["order_id"],
+        "status":     row["status"],
+        "reason":     row["reason"],
+        "created_at": row["created_at"],
     }

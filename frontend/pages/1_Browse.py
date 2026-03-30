@@ -22,28 +22,31 @@ user = require_login()
 render_sidebar_user()
 init_session()
 
+PLACEHOLDER = "https://covers.openlibrary.org/b/isbn/0000000000-M.jpg"
 
 # ── Styles ────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
     .stApp { background-color: #0f1117; }
     .page-title {
-        font-size: 32px; font-weight: 800; color: #e94560; margin-bottom: 4px;
+        font-size: 32px; font-weight: 800;
+        color: #e94560; margin-bottom: 4px;
     }
     .book-card {
         background: linear-gradient(135deg, #1a1a2e, #16213e);
         border: 1px solid #0f3460; border-radius: 14px;
-        padding: 16px; margin-bottom: 4px; height: 100%;
+        padding: 10px 14px 14px 14px; margin-bottom: 4px;
+        text-align: center;
     }
     .book-title {
-        font-size: 15px; font-weight: 700; color: #e94560;
-        min-height: 44px; line-height: 1.4;
+        font-size: 14px; font-weight: 700; color: #e94560;
+        min-height: 40px; line-height: 1.4; margin-bottom: 4px;
     }
-    .book-author { font-size: 12px; color: #808090; margin: 4px 0; }
+    .book-author { font-size: 12px; color: #808090; margin: 3px 0; }
     .badge-price {
         background: #0f3460; color: #e94560;
         padding: 3px 10px; border-radius: 20px;
-        font-weight: 700; font-size: 13px;
+        font-weight: 700; font-size: 12px;
     }
     .badge-rating {
         background: #1a3a1a; color: #4caf50;
@@ -64,20 +67,19 @@ st.markdown("""
 
 
 # ── Buy-Now Handler ───────────────────────────────────────────────────────────
-if "buy_now_product" in st.session_state and st.session_state.buy_now_product:
+if st.session_state.get("buy_now_product"):
     product = st.session_state.buy_now_product
-    pid     = product.get("id")
     with st.spinner(f"Placing order for {product.get('title','')[:30]}..."):
         result = place_order(
-            pid,
+            product.get("id"),
             st.session_state.session_id,
-            user_id=user["id"]           # ← auth: real user_id
+            user_id=user["id"]
         )
     if result.get("order_id"):
         st.session_state.last_order_id = result["order_id"]
         st.session_state.order_success = result
     else:
-        st.error(f"Order failed: {result.get('error', 'Unknown error')}")
+        st.error(f"Order failed: {result.get('error','Unknown error')}")
     st.session_state.buy_now_product = None
     st.rerun()
 
@@ -88,30 +90,27 @@ if "buy_now_product" in st.session_state and st.session_state.buy_now_product:
 with st.sidebar:
     st.markdown("### 🔍 Filters")
 
-    # Category
     categories   = ["All"] + get_categories()
     selected_cat = st.selectbox("Category", categories)
 
-    # Price range
-    pr      = get_price_range()
-    min_p   = int(pr.get("min", 300))
-    max_p   = int(pr.get("max", 1500))
+    pr    = get_price_range()
+    min_p = int(pr.get("min", 300))
+    max_p = int(pr.get("max", 1500))
     price_range = st.slider(
         "Price Range (₹)", min_value=min_p, max_value=max_p,
         value=(min_p, max_p), step=50
     )
 
-    # Rating
     min_rating = st.select_slider(
         "Min Rating",
         options=[4.0, 4.2, 4.4, 4.5, 4.7, 4.8, 4.9],
         value=4.0
     )
 
-    # Sort
     sort_by = st.selectbox(
         "Sort By",
-        ["Rating (High→Low)", "Price (Low→High)", "Price (High→Low)", "Title (A→Z)"]
+        ["Rating (High→Low)", "Price (Low→High)",
+         "Price (High→Low)", "Title (A→Z)"]
     )
 
     st.divider()
@@ -128,37 +127,37 @@ with st.sidebar:
             pid = p.get("id")
             c1, c2 = st.columns([3, 1])
             with c1:
-                st.caption(f"{p.get('title','')[:26]}...")
+                st.caption(f"{p.get('title','')[:24]}...")
                 st.caption(f"₹{p.get('price','')}")
             with c2:
                 if st.button("🗑", key=f"rm_{pid}"):
                     remove_from_cart(pid)
                     st.rerun()
-
         st.divider()
         st.markdown(f"**Total: ₹{total:,.0f}**")
         col_clear, col_checkout = st.columns(2)
         with col_clear:
-            if st.button("Clear", use_container_width=True):
+            if st.button("Clear", width='stretch'):
                 clear_cart()
                 st.rerun()
         with col_checkout:
-            if st.button("Checkout", use_container_width=True, type="primary"):
+            if st.button("Checkout", width='stretch', type="primary"):
                 st.switch_page("pages/5_Cart.py")
 
     st.divider()
-    if st.button("🤖 Need help choosing?", use_container_width=True):
+    if st.button("🤖 Need help choosing?", width='stretch'):
         st.switch_page("pages/2_AIAssistant.py")
-    if st.button("📦 My Orders",          use_container_width=True):
+    if st.button("📦 My Orders",           width='stretch'):
         st.switch_page("pages/3_Orders.py")
-    if st.button("🏠 Home",               use_container_width=True):
+    if st.button("🏠 Home",                width='stretch'):
         st.switch_page("app.py")
 
 
 # ════════════════════════════════════════════════════════════════════════════
 # MAIN CONTENT
 # ════════════════════════════════════════════════════════════════════════════
-st.markdown('<div class="page-title">🛍️ Browse Books</div>', unsafe_allow_html=True)
+st.markdown('<div class="page-title">🛍️ Browse Books</div>',
+            unsafe_allow_html=True)
 st.caption("Browse, filter, and buy instantly — no AI needed here.")
 
 # ── Order success banner ──────────────────────────────────────────────────────
@@ -166,7 +165,7 @@ if st.session_state.get("order_success"):
     result = st.session_state.order_success
     st.success(
         f"✅ Order placed! Order ID: `{result.get('order_id')}` "
-        f"— {result.get('message', '')}"
+        f"— {result.get('message','')}"
     )
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -181,7 +180,7 @@ if st.session_state.get("order_success"):
             st.session_state.order_success = None
             st.rerun()
 
-# ── Search bar ────────────────────────────────────────────────────────────────
+# ── Search ────────────────────────────────────────────────────────────────────
 search = st.text_input(
     "search", label_visibility="collapsed",
     placeholder="🔎 Search by title, author, or topic..."
@@ -191,14 +190,9 @@ st.divider()
 # ── Fetch + filter ────────────────────────────────────────────────────────────
 cat      = None if selected_cat == "All" else selected_cat
 products = get_products(category=cat, max_price=price_range[1], limit=100)
-
-# Min price filter
-products = [p for p in products if p.get("price", 0) >= price_range[0]]
-
-# Min rating filter
+products = [p for p in products if p.get("price",  0) >= price_range[0]]
 products = [p for p in products if p.get("rating", 0) >= min_rating]
 
-# Search filter
 if search.strip():
     q        = search.lower()
     products = [
@@ -209,7 +203,6 @@ if search.strip():
         or q in p.get("description", "").lower()
     ]
 
-# Sort
 sort_map = {
     "Rating (High→Low)": lambda p: -p.get("rating", 0),
     "Price (Low→High)":  lambda p:  p.get("price",  0),
@@ -226,65 +219,75 @@ if not products:
     <div class="empty-state">
         <div style="font-size:48px;">📭</div>
         <div style="font-size:18px; margin:8px 0;">No books found</div>
-        <div style="font-size:14px;">Try adjusting your filters or search query.</div>
+        <div style="font-size:14px;">Try adjusting your filters.</div>
     </div>
     """, unsafe_allow_html=True)
     st.stop()
 
-# ── Book grid (3 columns) ─────────────────────────────────────────────────────
-COLS_PER_ROW = 3
+# ── Book grid (4 columns) ─────────────────────────────────────────────────────
+COLS_PER_ROW = 4
 for row_start in range(0, len(products), COLS_PER_ROW):
-    row_books = products[row_start : row_start + COLS_PER_ROW]
+    row_books = products[row_start: row_start + COLS_PER_ROW]
     cols      = st.columns(COLS_PER_ROW)
 
     for col, book in zip(cols, row_books):
-        pid = book.get("id")
+        pid   = book.get("id")
+        cover = book.get("cover_url") or PLACEHOLDER
+
         with col:
-            # Book card HTML
+            # ✅ st.image() loads external URLs correctly
+            try:
+                st.image(cover, width='stretch')
+            except Exception:
+                st.image(PLACEHOLDER, width='stretch')
+
+            # Book info card
             st.markdown(f"""
             <div class="book-card">
                 <div class="book-title">{book.get('title','')}</div>
                 <div class="book-author">{book.get('author','')}</div>
-                <div style="margin-top:8px; display:flex; gap:6px; flex-wrap:wrap;">
+                <div style="margin-top:8px; display:flex; gap:5px;
+                            flex-wrap:wrap; justify-content:center;">
                     <span class="badge-price">₹{book.get('price','')}</span>
-                    <span class="badge-rating">⭐ {book.get('rating','')} / 5</span>
-                    <span class="badge-cat">📂 {book.get('category','').title()}</span>
+                    <span class="badge-rating">⭐ {book.get('rating','')}</span>
+                    <span class="badge-cat">{book.get('category','').title()}</span>
                 </div>
             </div>
             """, unsafe_allow_html=True)
 
-            # View Details button
-            if st.button("📖 View Details", key=f"detail_{pid}",
-                         use_container_width=True):
+            # View Details
+            if st.button("📖 Details", key=f"detail_{pid}",
+                         width='stretch'):
                 st.session_state.detail_product_id = pid
                 st.switch_page("pages/4_Book_Detail.py")
 
-            # Cart + Buy buttons
+            # Cart + Buy
             b1, b2 = st.columns(2)
             with b1:
                 if in_cart(pid):
-                    if st.button("✅ In Cart", key=f"cart_{pid}",
-                                 use_container_width=True, type="secondary"):
+                    if st.button("✅ Cart", key=f"cart_{pid}",
+                                 width='stretch', type="secondary"):
                         remove_from_cart(pid)
                         st.rerun()
                 else:
                     if st.button("🛒 Cart", key=f"cart_{pid}",
-                                 use_container_width=True):
+                                 width='stretch'):
                         add_to_cart(book)
                         st.rerun()
             with b2:
                 if st.button("⚡ Buy", key=f"buy_{pid}",
-                             use_container_width=True, type="primary"):
+                             width='stretch', type="primary"):
                     st.session_state.buy_now_product = book
                     st.rerun()
 
-            # Ask AI entry point (inside expander to keep card compact)
+            # Ask AI
             with st.expander("🤖 Ask AI"):
-                if st.button("Compare & Recommend", key=f"ai_{pid}",
-                             use_container_width=True):
+                if st.button("Compare & Recommend",
+                             key=f"ai_{pid}", width='stretch'):
                     st.session_state.ai_prefill = (
                         f"Tell me about '{book.get('title','')}' "
-                        f"and compare it with similar {book.get('category','')} books"
+                        f"and compare with similar "
+                        f"{book.get('category','')} books"
                     )
                     st.switch_page("pages/2_AIAssistant.py")
 
