@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from api.models import (
     ChatRequest, ChatResponse, ProductResponse, RankedProduct,
     OrderRequest, OrderResponse,
@@ -16,11 +17,13 @@ from tools.db_tool import (
     initiate_return, search_products, get_all_categories, get_price_range
 )
 from typing import List
+import asyncio
+import json
 
 router = APIRouter()
 
 
-# ── /chat ────────────────────────────────────────────────────────────────────
+# ── /chat ─────────────────────────────────────────────────────────────────────
 
 @router.post("/chat", response_model=ChatResponse, tags=["Core"])
 async def chat(request: ChatRequest):
@@ -74,7 +77,7 @@ async def chat(request: ChatRequest):
                 id=p["id"], title=p["title"], author=p["author"],
                 price=p["price"], rating=p["rating"],
                 category=p["category"], description=p["description"],
-                cover_url=p.get("cover_url")         # ← ADD
+                cover_url=p.get("cover_url")
             )
 
     ranked_products = None
@@ -107,7 +110,136 @@ async def chat(request: ChatRequest):
     )
 
 
-# ── /order ───────────────────────────────────────────────────────────────────
+# ── /chat/stream ──────────────────────────────────────────────────────────────
+
+@router.post("/chat/stream", tags=["Core"])
+async def chat_stream(request: ChatRequest):
+    """
+    Streams the AI answer word-by-word as SSE events.
+
+    Event types:
+      {"type": "token",   "content": "word "}          ← one per word
+      {"type": "done",    "intent": ...,
+       "recommended_product": ..., "ranked_products": ...,
+       "order_id": ...}                                 ← final metadata
+      {"type": "error",   "content": "..."}             ← on failure
+    """
+    session_id   = request.session_id
+    history      = get_history(session_id)
+    last_context = get_last_context(session_id)
+
+    initial_state: EcommerceState = {
+        "session_id":              session_id,
+        "user_query":              request.query,
+        "conversation_history":    history,
+        "intent":                  "",
+        "plan":                    [],
+        "budget":                  last_context.get("budget"),
+        "category":                last_context.get("category"),
+        "product_list":            [],
+        "research_data":           [],
+        "comparison_result":       None,
+        "final_answer":            "",
+        "recommended_product_id":  last_context.get("product_id"),
+        "validation_score":        0.0,
+        "validation_feedback":     None,
+        "retry_count":             0,
+        "order_status":            None,
+        "order_id":                last_context.get("order_id"),
+        "error":                   None,
+        "current_node":            "start"
+    }
+
+    async def event_generator():
+        try:
+            # Run LangGraph in thread (it's sync) so we don't block the event loop
+            final_state = await asyncio.to_thread(
+                langgraph_app.invoke, initial_state
+            )
+
+            answer = final_state.get("final_answer", "")
+
+            # Save turn to memory
+            save_turn(
+                session_id=        session_id,
+                user_query=        request.query,
+                assistant_response=answer,
+                intent=            final_state.get("intent"),
+                category=          final_state.get("category"),
+                budget=            final_state.get("budget"),
+                product_id=        final_state.get("recommended_product_id"),
+                order_id=          final_state.get("order_id"),
+            )
+
+            # ── Stream answer word by word ────────────────────────────────────
+            words = answer.split(" ")
+            for i, word in enumerate(words):
+                chunk = word + (" " if i < len(words) - 1 else "")
+                yield f"data: {json.dumps({'type': 'token', 'content': chunk})}\n\n"
+                await asyncio.sleep(0.03)   # ~33 words/sec — natural feel
+
+            # ── Build recommended_product for metadata ────────────────────────
+            recommended_product = None
+            if final_state.get("recommended_product_id"):
+                p = get_product_by_id(final_state["recommended_product_id"])
+                if p:
+                    recommended_product = {
+                        "id":          p["id"],
+                        "title":       p["title"],
+                        "author":      p["author"],
+                        "price":       p["price"],
+                        "rating":      p["rating"],
+                        "category":    p["category"],
+                        "description": p["description"],
+                        "cover_url":   p.get("cover_url"),
+                    }
+
+            # ── Build ranked_products for metadata ────────────────────────────
+            ranked_products = None
+            comparison = final_state.get("comparison_result")
+            if comparison and comparison.get("ranked_products"):
+                ranked_products = [
+                    {
+                        "rank":              r.get("rank", i + 1),
+                        "product_id":        r["product_id"],
+                        "title":             r["title"],
+                        "total_score":       float(r.get("total_score", 0)),
+                        "price_value":       r.get("price_value"),
+                        "beginner_friendly": r.get("beginner_friendly"),
+                        "content_depth":     r.get("content_depth"),
+                        "rating_score":      r.get("rating_score"),
+                    }
+                    for i, r in enumerate(comparison["ranked_products"])
+                    if isinstance(r, dict) and "product_id" in r
+                ]
+
+            # ── Final metadata event ──────────────────────────────────────────
+            meta = {
+                "type":                "done",
+                "intent":              final_state.get("intent", ""),
+                "recommended_product": recommended_product,
+                "ranked_products":     ranked_products,
+                "order_id":            final_state.get("order_id"),
+                "order_status":        final_state.get("order_status"),
+                "validation_score":    final_state.get("validation_score"),
+            }
+            yield f"data: {json.dumps(meta)}\n\n"
+
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control":               "no-cache",
+            "X-Accel-Buffering":           "no",   # disables Nginx buffering
+            "Access-Control-Allow-Origin": "*",
+        }
+    )
+
+
+# ── /order ────────────────────────────────────────────────────────────────────
 
 @router.post("/order", response_model=OrderResponse, tags=["Orders"])
 async def place_order_endpoint(request: OrderRequest):
@@ -136,7 +268,7 @@ async def place_order_endpoint(request: OrderRequest):
     )
 
 
-# ── /track ───────────────────────────────────────────────────────────────────
+# ── /track ────────────────────────────────────────────────────────────────────
 
 @router.get("/track/{order_id}", response_model=TrackResponse, tags=["Orders"])
 async def track_order(order_id: str):
@@ -156,7 +288,7 @@ async def track_order(order_id: str):
     )
 
 
-# ── /return ──────────────────────────────────────────────────────────────────
+# ── /return ───────────────────────────────────────────────────────────────────
 
 @router.post("/return", response_model=ReturnResponse, tags=["Orders"])
 async def return_order(request: ReturnRequest):
@@ -184,7 +316,7 @@ async def return_order(request: ReturnRequest):
     )
 
 
-# ── /history ─────────────────────────────────────────────────────────────────
+# ── /history ──────────────────────────────────────────────────────────────────
 
 @router.get("/history/{session_id}",
             response_model=List[HistoryItem], tags=["Memory"])
@@ -228,7 +360,7 @@ async def list_products(
             id=p["id"], title=p["title"], author=p["author"],
             price=p["price"], rating=p["rating"],
             category=p["category"], description=p["description"],
-            cover_url=p.get("cover_url")             # ← ADD
+            cover_url=p.get("cover_url")
         )
         for p in products
     ]
@@ -245,7 +377,7 @@ async def get_product(product_id: int):
         id=product["id"], title=product["title"], author=product["author"],
         price=product["price"], rating=product["rating"],
         category=product["category"], description=product["description"],
-        cover_url=product.get("cover_url")           # ← ADD
+        cover_url=product.get("cover_url")
     )
 
 

@@ -13,8 +13,9 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+# NEW
+from utils.api import call_chat, call_chat_stream, get_history, clear_history, place_order
 
-from utils.api     import call_chat, get_history, clear_history, place_order
 from utils.session import (init_session, save_session, load_sessions,
                            delete_saved_session, cart_total,
                            require_login, render_sidebar_user)
@@ -122,33 +123,52 @@ def handle_query(query: str):
 
     st.session_state.messages.append({"role": "user", "content": query})
 
-    with st.spinner("🤖 Analyzing your request..."):
-        start   = time.time()
-        result  = call_chat(query, st.session_state.session_id,
-                            user_id=user["id"])
-        elapsed = round(time.time() - start, 1)
+    # Streaming placeholder
+    with st.chat_message("assistant"):
+        placeholder   = st.empty()
+        streamed_text = ""
+        meta          = {}
+        elapsed_start = time.time()
 
-    # ── Phase 11.5: catch API error before processing ─────────────────────────
-    if show_api_error(result, "AI assistant"):
-        st.session_state.messages.pop()   # remove the user message we just added
-        return
+        for chunk in call_chat(
+            query,
+            st.session_state.session_id,
+            user_id=user["id"]
+        ):
+            if chunk["type"] == "token":
+                streamed_text += chunk["content"]
+                placeholder.markdown(
+                    f'<div class="bot-bubble">🤖 {streamed_text}▌</div>',
+                    unsafe_allow_html=True
+                )
+            elif chunk["type"] == "done":
+                meta = chunk
+                placeholder.markdown(
+                    f'<div class="bot-bubble">🤖 {streamed_text}</div>',
+                    unsafe_allow_html=True
+                )
+                break
+            elif chunk["type"] == "error":
+                placeholder.error(chunk["content"])
+                st.session_state.messages.pop()
+                return
 
-    answer = result.get("answer", "Sorry, something went wrong.")
-    intent = result.get("intent", "")
+    elapsed = round(time.time() - elapsed_start, 1)
+    intent  = meta.get("intent", "")
 
-    if result.get("recommended_product"):
-        st.session_state.last_product = result["recommended_product"]
-    if result.get("order_id"):
-        st.session_state.last_order_id = result["order_id"]
-    if result.get("ranked_products"):
-        st.session_state.ranked = result["ranked_products"]
+    if meta.get("recommended_product"):
+        st.session_state.last_product = meta["recommended_product"]
+    if meta.get("order_id"):
+        st.session_state.last_order_id = meta["order_id"]
+    if meta.get("ranked_products"):
+        st.session_state.ranked = meta["ranked_products"]
 
     st.session_state.messages.append({
         "role":    "assistant",
-        "content": answer,
+        "content": streamed_text,
         "intent":  intent,
         "elapsed": elapsed,
-        "data":    result
+        "data":    meta,
     })
 
     saved = load_sessions()

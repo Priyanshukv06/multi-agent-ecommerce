@@ -5,6 +5,8 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.insert(0, ROOT)
 
 import requests
+import json as _json
+from typing import Generator
 from config.settings import API_BASE_URL
 
 
@@ -55,8 +57,50 @@ def _delete(endpoint: str):
 
 # ── AI Chat ───────────────────────────────────────────────────────────────────
 
-def call_chat(query: str, session_id: str) -> dict:
-    return _post("/chat", {"query": query, "session_id": session_id}, timeout=120)
+def call_chat(query: str, session_id: str, user_id: int = None) -> dict:
+    data = {"query": query, "session_id": session_id}
+    if user_id:
+        data["user_id"] = user_id
+    return _post("/chat", data, timeout=120)
+
+
+def call_chat_stream(
+    query:      str,
+    session_id: str,
+    user_id:    int = None
+) -> Generator[dict, None, None]:
+    """
+    Streams AI response as SSE events. Yields dicts:
+      {"type": "token",   "content": "word "}   ← one per word
+      {"type": "done",    "intent": ...,
+       "recommended_product": ...,
+       "ranked_products": ...,
+       "order_id": ...}                          ← final metadata
+      {"type": "error",   "content": "..."}      ← on failure
+    """
+    data = {"query": query, "session_id": session_id}
+    if user_id:
+        data["user_id"] = user_id
+
+    try:
+        with requests.post(
+            f"{API_BASE_URL}/chat/stream",
+            json=data,
+            stream=True,
+            timeout=120
+        ) as resp:
+            resp.raise_for_status()
+            for raw_line in resp.iter_lines():
+                if raw_line and raw_line.startswith(b"data: "):
+                    payload = raw_line[6:]          # strip "data: " prefix
+                    yield _json.loads(payload)
+
+    except requests.ConnectionError:
+        yield {"type": "error", "content": "⚠️ API server is not running. Start it with: uvicorn api.main:app --reload"}
+    except requests.Timeout:
+        yield {"type": "error", "content": "⚠️ Request timed out. AI pipeline is taking too long."}
+    except Exception as e:
+        yield {"type": "error", "content": str(e)}
 
 
 # ── Products ──────────────────────────────────────────────────────────────────
@@ -100,8 +144,11 @@ def get_price_range() -> dict:
 
 # ── Orders ────────────────────────────────────────────────────────────────────
 
-def place_order(product_id: int, session_id: str) -> dict:
-    return _post("/order", {"product_id": product_id, "session_id": session_id})
+def place_order(product_id: int, session_id: str, user_id: int = None) -> dict:
+    data = {"product_id": product_id, "session_id": session_id}
+    if user_id:
+        data["user_id"] = user_id
+    return _post("/order", data)
 
 
 def place_bulk_orders(product_ids: list, session_id: str) -> list:
@@ -115,12 +162,20 @@ def track_order(order_id: str) -> dict:
 
 # ── Returns ───────────────────────────────────────────────────────────────────
 
-def initiate_return(order_id: str, reason: str, session_id: str) -> dict:
-    return _post("/return", {
+def initiate_return(
+    order_id:   str,
+    reason:     str,
+    session_id: str,
+    user_id:    int = None
+) -> dict:
+    data = {
         "order_id":   order_id,
         "reason":     reason,
-        "session_id": session_id
-    })
+        "session_id": session_id,
+    }
+    if user_id:
+        data["user_id"] = user_id
+    return _post("/return", data)
 
 
 # ── Memory / History ──────────────────────────────────────────────────────────
