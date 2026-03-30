@@ -4,6 +4,7 @@ import os
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+from utils.error   import show_api_error, show_connection_banner   # ← Phase 11.5
 from utils.api     import get_products, get_categories, get_price_range, place_order
 from utils.session import (
     init_session, add_to_cart, remove_from_cart,
@@ -44,11 +45,11 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 init_session()
+show_connection_banner()              # ← Phase 11.5 (correct position: after init_session)
 
 # ── Pagination constant ───────────────────────────────────────────────────────
-BOOKS_PER_PAGE = 9   # 3 cols × 3 rows — feels like a full screen
+BOOKS_PER_PAGE = 9
 
-# Init page number in session state
 if "browse_page" not in st.session_state:
     st.session_state["browse_page"] = 1
 
@@ -59,9 +60,11 @@ if st.session_state.get("buy_now_product"):
     product_id = product["id"]
     with st.spinner(f"Placing order for {product['title'][:30]}..."):
         result = place_order(product_id, st.session_state["session_id"])
-    if result.get("order_id"):
-        st.session_state["last_order_id"] = result["order_id"]
-        st.session_state["order_success"]  = result
+    # ── Phase 11.5 ────────────────────────────────────────────────────────────
+    if not show_api_error(result, "placing order"):
+        if result.get("order_id"):
+            st.session_state["last_order_id"] = result["order_id"]
+            st.session_state["order_success"]  = result
     st.session_state["buy_now_product"] = None
     st.rerun()
 
@@ -78,18 +81,21 @@ if st.session_state.get("checkout_trigger"):
         for i, product in enumerate(cart):
             with st.spinner(f"Ordering {product['title'][:30]}..."):
                 result = place_order(product["id"], st.session_state["session_id"])
+            # ── Phase 11.5 ────────────────────────────────────────────────────
+            if not show_api_error(result, f"ordering {product['title'][:20]}"):
                 results.append((product, result))
             progress.progress((i + 1) / len(cart))
 
-        st.success(f"✅ {len(results)} orders placed successfully!")
-        for product, result in results:
-            if result.get("order_id"):
-                st.markdown(
-                    f'<div class="order-success"><b>{product["title"][:40]}</b>'
-                    f'<br>Order ID <code>{result["order_id"]}</code></div>',
-                    unsafe_allow_html=True
-                )
-                st.session_state["last_order_id"] = result["order_id"]
+        if results:
+            st.success(f"✅ {len(results)} orders placed successfully!")
+            for product, result in results:
+                if result.get("order_id"):
+                    st.markdown(
+                        f'<div class="order-success"><b>{product["title"][:40]}</b>'
+                        f'<br>Order ID <code>{result["order_id"]}</code></div>',
+                        unsafe_allow_html=True
+                    )
+                    st.session_state["last_order_id"] = result["order_id"]
         clear_cart()
         c1, c2 = st.columns(2)
         with c1:
@@ -110,9 +116,9 @@ with st.sidebar:
     categories   = ["All"] + get_categories()
     selected_cat = st.selectbox("Category", categories)
 
-    pr        = get_price_range()
-    min_p     = int(pr.get("min", 300))
-    max_p     = int(pr.get("max", 1500))
+    pr          = get_price_range()
+    min_p       = int(pr.get("min", 300))
+    max_p       = int(pr.get("max", 1500))
     price_range = st.slider(
         "Price Range (₹)", min_value=min_p, max_value=max_p,
         value=(min_p, max_p), step=50
@@ -138,8 +144,8 @@ with st.sidebar:
         st.caption("Your cart is empty.")
     else:
         for p in cart:
-            pid     = p["id"]
-            c1, c2  = st.columns([3, 1])
+            pid    = p["id"]
+            c1, c2 = st.columns([3, 1])
             with c1:
                 st.caption(f"{p['title'][:26]}...")
                 st.caption(f"₹{p['price']}")
@@ -201,11 +207,8 @@ st.divider()
 cat      = None if selected_cat == "All" else selected_cat
 products = get_products(category=cat, max_price=price_range[1], limit=100)
 
-# Min price
 products = [p for p in products if p.get("price", 0) >= price_range[0]]
-# Min rating
 products = [p for p in products if p.get("rating", 0) >= min_rating]
-# Search
 if search.strip():
     q        = search.lower()
     products = [
@@ -215,7 +218,6 @@ if search.strip():
         or q in p.get("category",    "").lower()
         or q in p.get("description", "").lower()
     ]
-# Sort
 sort_map = {
     "Rating High→Low": lambda p: -p.get("rating", 0),
     "Price Low→High":  lambda p:  p.get("price",  0),
@@ -241,24 +243,20 @@ if not products:
 # PAGINATION LOGIC
 # ════════════════════════════════════════════════════════════════════════════
 total_books  = len(products)
-total_pages  = max(1, -(-total_books // BOOKS_PER_PAGE))  # ceiling division
+total_pages  = max(1, -(-total_books // BOOKS_PER_PAGE))
 
-# Reset to page 1 whenever filters/search change
 page_key = f"{selected_cat}_{price_range}_{min_rating}_{sort_by}_{search}"
 if st.session_state.get("_last_filter_key") != page_key:
     st.session_state["browse_page"]      = 1
     st.session_state["_last_filter_key"] = page_key
 
-# Clamp page within valid range
-current_page = max(1, min(st.session_state["browse_page"], total_pages))
+current_page                    = max(1, min(st.session_state["browse_page"], total_pages))
 st.session_state["browse_page"] = current_page
 
-# Slice products for current page
-start_idx    = (current_page - 1) * BOOKS_PER_PAGE
-end_idx      = start_idx + BOOKS_PER_PAGE
-page_books   = products[start_idx:end_idx]
+start_idx  = (current_page - 1) * BOOKS_PER_PAGE
+end_idx    = start_idx + BOOKS_PER_PAGE
+page_books = products[start_idx:end_idx]
 
-# Results count + page info
 st.markdown(
     f"**{total_books}** books found &nbsp;·&nbsp; "
     f"Page **{current_page}** of **{total_pages}**"
@@ -266,7 +264,7 @@ st.markdown(
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# BOOK GRID  (only current page's books)
+# BOOK GRID
 # ════════════════════════════════════════════════════════════════════════════
 COLS_PER_ROW = 3
 
@@ -277,11 +275,9 @@ for row_start in range(0, len(page_books), COLS_PER_ROW):
     for col, book in zip(cols, row_books):
         pid = book["id"]
         with col:
-            # Cover image
             if book.get("cover_url"):
                 st.image(book["cover_url"], use_container_width=True)
 
-            # Card HTML
             st.markdown(f"""
             <div class="book-card">
                 <div class="book-title">{book["title"]}</div>
@@ -294,17 +290,16 @@ for row_start in range(0, len(page_books), COLS_PER_ROW):
             </div>
             """, unsafe_allow_html=True)
 
-            # Details expander
             with st.expander("Details"):
                 st.caption(book.get("description", ""))
-                if st.button("🤖 Compare / Recommend", key=f"ai_{pid}", use_container_width=True):
+                if st.button("🤖 Compare / Recommend", key=f"ai_{pid}",
+                             use_container_width=True):
                     st.session_state["ai_prefill"] = (
                         f"Tell me about '{book['title']}' "
                         f"and compare it with similar books"
                     )
                     st.switch_page("pages/2_AIAssistant.py")
 
-            # Cart + Buy buttons
             b1, b2 = st.columns(2)
             with b1:
                 if in_cart(pid):
@@ -325,23 +320,19 @@ for row_start in range(0, len(page_books), COLS_PER_ROW):
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# PAGINATION CONTROLS  (bottom of page)
+# PAGINATION CONTROLS
 # ════════════════════════════════════════════════════════════════════════════
 st.divider()
 
-# Always show even on single page — just disable arrows
 prev_col, info_col, next_col = st.columns([1, 3, 1])
 
 with prev_col:
-    if st.button(
-        "← Prev", use_container_width=True,
-        disabled=(current_page <= 1)
-    ):
+    if st.button("← Prev", use_container_width=True,
+                 disabled=(current_page <= 1)):
         st.session_state["browse_page"] -= 1
         st.rerun()
 
 with info_col:
-    # Jump-to-page selector centred
     selected_jump = st.selectbox(
         "Jump to page",
         options=list(range(1, total_pages + 1)),
@@ -360,9 +351,7 @@ with info_col:
     )
 
 with next_col:
-    if st.button(
-        "Next →", use_container_width=True,
-        disabled=(current_page >= total_pages)
-    ):
+    if st.button("Next →", use_container_width=True,
+                 disabled=(current_page >= total_pages)):
         st.session_state["browse_page"] += 1
         st.rerun()

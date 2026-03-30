@@ -2,11 +2,12 @@ import streamlit as st
 import sys
 import os
 
+# ── Path setup ────────────────────────────────────────────────────────────────
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, 'frontend'))
 
-st.set_page_config(                                          # ← MOVED TO TOP
+st.set_page_config(
     page_title="AI Assistant — AI Book Store",
     page_icon="🤖",
     layout="wide",
@@ -17,13 +18,13 @@ from utils.api     import call_chat, get_history, clear_history, place_order
 from utils.session import (init_session, save_session, load_sessions,
                            delete_saved_session, cart_total,
                            require_login, render_sidebar_user)
+from utils.error   import show_api_error, show_connection_banner   # ← Phase 11.5
 import json
 import time
 import uuid
 
-user = require_login()                                       # ← AFTER set_page_config
+user = require_login()
 render_sidebar_user()
-
 
 st.markdown("""
 <style>
@@ -90,8 +91,8 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-
 init_session()
+show_connection_banner()              # ← Phase 11.5 (correct position: after init_session)
 
 
 # ── Intent badge colors ───────────────────────────────────────────────────────
@@ -122,10 +123,15 @@ def handle_query(query: str):
     st.session_state.messages.append({"role": "user", "content": query})
 
     with st.spinner("🤖 Analyzing your request..."):
-        start  = time.time()
-        result = call_chat(query, st.session_state.session_id,
-                           user_id=user["id"])          # ← CHANGED: pass user_id
+        start   = time.time()
+        result  = call_chat(query, st.session_state.session_id,
+                            user_id=user["id"])
         elapsed = round(time.time() - start, 1)
+
+    # ── Phase 11.5: catch API error before processing ─────────────────────────
+    if show_api_error(result, "AI assistant"):
+        st.session_state.messages.pop()   # remove the user message we just added
+        return
 
     answer = result.get("answer", "Sorry, something went wrong.")
     intent = result.get("intent", "")
@@ -180,11 +186,13 @@ def render_rec_card(product: dict):
                      use_container_width=True, type="primary"):
             with st.spinner("Placing order..."):
                 result = place_order(pid, st.session_state.session_id,
-                                     user_id=user["id"])  # ← CHANGED: pass user_id
-            if result.get("order_id"):
-                st.session_state.last_order_id = result["order_id"]
-                st.success(f"✅ Order placed! `{result['order_id']}`")
-                st.rerun()
+                                     user_id=user["id"])
+            # ── Phase 11.5 ────────────────────────────────────────────────────
+            if not show_api_error(result, "placing order"):
+                if result.get("order_id"):
+                    st.session_state.last_order_id = result["order_id"]
+                    st.success(f"✅ Order placed! `{result['order_id']}`")
+                    st.rerun()
     with col2:
         if st.button("📖 View Details", key=f"rec_detail_{pid}",
                      use_container_width=True):
@@ -193,9 +201,8 @@ def render_rec_card(product: dict):
     with col3:
         if st.button("🔁 Compare more", key=f"rec_compare_{pid}",
                      use_container_width=True):
-            product_title = product.get("title", "")
             handle_query(
-                f"Compare '{product_title}' with other "
+                f"Compare '{product.get('title','')}' with other "
                 f"{product.get('category','')} books"
             )
             st.rerun()
@@ -224,10 +231,10 @@ def render_comparison(ranked: list):
                 st.switch_page("pages/4_Book_Detail.py")
         with col_scores:
             metrics = [
-                ("💰 Price Value",    p.get("price_value",       0)),
-                ("🎓 Beginner",       p.get("beginner_friendly", 0)),
-                ("📖 Content Depth",  p.get("content_depth",     0)),
-                ("⭐ Rating Score",   p.get("rating_score",      0)),
+                ("💰 Price Value",   p.get("price_value",       0)),
+                ("🎓 Beginner",      p.get("beginner_friendly", 0)),
+                ("📖 Content Depth", p.get("content_depth",     0)),
+                ("⭐ Rating Score",  p.get("rating_score",      0)),
             ]
             m1, m2 = st.columns(2)
             for i, (label, val) in enumerate(metrics):
@@ -247,12 +254,12 @@ with st.sidebar:
 
     st.markdown("**⚡ Quick Prompts**")
     quick = [
-        ("📘 ML under ₹1000",      "recommend a machine learning book under ₹1000"),
-        ("🧠 Compare DL books",    "compare deep learning books"),
-        ("🐍 Best Python book",    "what is the best python programming book?"),
-        ("📊 Data science books",  "suggest top data science books"),
-        ("📦 My orders",           "show my orders"),
-        ("🔁 Return last order",   "I want to return my last order"),
+        ("📘 ML under ₹1000",     "recommend a machine learning book under ₹1000"),
+        ("🧠 Compare DL books",   "compare deep learning books"),
+        ("🐍 Best Python book",   "what is the best python programming book?"),
+        ("📊 Data science books", "suggest top data science books"),
+        ("📦 My orders",          "show my orders"),
+        ("🔁 Return last order",  "I want to return my last order"),
     ]
     for label, query in quick:
         if st.button(label, key=f"q_{label}", use_container_width=True):
@@ -328,11 +335,11 @@ with st.sidebar:
 
     st.divider()
 
-    if st.button("🛍️ Browse Books",  use_container_width=True):
+    if st.button("🛍️ Browse Books", use_container_width=True):
         st.switch_page("pages/1_Browse.py")
-    if st.button("📦 My Orders",     use_container_width=True):
+    if st.button("📦 My Orders",    use_container_width=True):
         st.switch_page("pages/3_Orders.py")
-    if st.button("🏠 Home",          use_container_width=True):
+    if st.button("🏠 Home",         use_container_width=True):
         st.switch_page("app.py")
 
 
@@ -371,12 +378,12 @@ if not st.session_state.messages:
     st.markdown("**Try asking:**")
     c1, c2, c3 = st.columns(3)
     suggestions = [
-        ("📘 ML under ₹1000",      "recommend a machine learning book under ₹1000"),
-        ("🧠 Compare DL books",    "compare deep learning books"),
-        ("🐍 Best Python book",    "what is the best python programming book?"),
-        ("📊 Data science",        "top data science books for beginners"),
-        ("📦 My orders",           "show my orders"),
-        ("🔁 Return order",        "I want to return my last order"),
+        ("📘 ML under ₹1000",     "recommend a machine learning book under ₹1000"),
+        ("🧠 Compare DL books",   "compare deep learning books"),
+        ("🐍 Best Python book",   "what is the best python programming book?"),
+        ("📊 Data science",       "top data science books for beginners"),
+        ("📦 My orders",          "show my orders"),
+        ("🔁 Return order",       "I want to return my last order"),
     ]
     for i, (label, query) in enumerate(suggestions):
         with [c1, c2, c3][i % 3]:
