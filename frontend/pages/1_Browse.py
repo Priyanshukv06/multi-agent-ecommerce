@@ -4,11 +4,12 @@ import os
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from utils.error   import show_api_error, show_connection_banner   # ← Phase 11.5
+from utils.error   import show_api_error, show_connection_banner
 from utils.api     import get_products, get_categories, get_price_range, place_order
 from utils.session import (
     init_session, add_to_cart, remove_from_cart,
-    in_cart, clear_cart, cart_total
+    in_cart, clear_cart, cart_total,
+    require_login, render_sidebar_user          # ← ADDED
 )
 
 st.set_page_config(
@@ -45,22 +46,26 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 init_session()
-show_connection_banner()              # ← Phase 11.5 (correct position: after init_session)
+user = require_login()           # ← ADDED — auth gate
+render_sidebar_user()            # ← ADDED
+show_connection_banner()
 
-# ── Pagination constant ───────────────────────────────────────────────────────
 BOOKS_PER_PAGE = 9
 
 if "browse_page" not in st.session_state:
     st.session_state["browse_page"] = 1
 
 
-# ── Buy-now handler (runs before render) ─────────────────────────────────────
+# ── Buy-now handler ───────────────────────────────────────────────────────────
 if st.session_state.get("buy_now_product"):
     product    = st.session_state["buy_now_product"]
     product_id = product["id"]
     with st.spinner(f"Placing order for {product['title'][:30]}..."):
-        result = place_order(product_id, st.session_state["session_id"])
-    # ── Phase 11.5 ────────────────────────────────────────────────────────────
+        result = place_order(
+            product_id,
+            st.session_state["session_id"],
+            user_id=user.get("id")              # ← FIXED
+        )
     if not show_api_error(result, "placing order"):
         if result.get("order_id"):
             st.session_state["last_order_id"] = result["order_id"]
@@ -80,8 +85,11 @@ if st.session_state.get("checkout_trigger"):
         results  = []
         for i, product in enumerate(cart):
             with st.spinner(f"Ordering {product['title'][:30]}..."):
-                result = place_order(product["id"], st.session_state["session_id"])
-            # ── Phase 11.5 ────────────────────────────────────────────────────
+                result = place_order(
+                    product["id"],
+                    st.session_state["session_id"],
+                    user_id=user.get("id")      # ← FIXED
+                )
             if not show_api_error(result, f"ordering {product['title'][:20]}"):
                 results.append((product, result))
             progress.progress((i + 1) / len(cart))
@@ -107,9 +115,7 @@ if st.session_state.get("checkout_trigger"):
         st.stop()
 
 
-# ════════════════════════════════════════════════════════════════════════════
-# SIDEBAR — Filters + Cart
-# ════════════════════════════════════════════════════════════════════════════
+# ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("### 🔍 Filters")
 
@@ -135,7 +141,6 @@ with st.sidebar:
 
     st.divider()
 
-    # Cart panel
     cart  = st.session_state.get("cart", [])
     total = cart_total()
     st.markdown(f"### 🛒 Cart ({len(cart)} items)")
@@ -167,18 +172,15 @@ with st.sidebar:
 
     st.divider()
     if st.button("🤖 Need help choosing?", use_container_width=True):
-        st.switch_page("pages/2_AIAssistant.py")
+        st.switch_page("pages/2_AI_Assistant.py")    # ← FIXED
     if st.button("📦 My Orders", use_container_width=True):
         st.switch_page("pages/3_Orders.py")
 
 
-# ════════════════════════════════════════════════════════════════════════════
-# MAIN CONTENT
-# ════════════════════════════════════════════════════════════════════════════
+# ── Main Content ──────────────────────────────────────────────────────────────
 st.markdown('<div class="page-title">📚 Browse Books</div>', unsafe_allow_html=True)
 st.caption("Browse, filter, and buy instantly — no AI needed here.")
 
-# Order success banner
 if st.session_state.get("order_success"):
     result = st.session_state["order_success"]
     st.success(f"✅ Order placed! ID: **{result.get('order_id')}** — {result.get('message','')}")
@@ -195,19 +197,15 @@ if st.session_state.get("order_success"):
             st.session_state["order_success"] = None
             st.rerun()
 
-# Search bar
 search = st.text_input(
     "search", label_visibility="collapsed",
     placeholder="🔍 Search by title, author, or topic..."
 )
 st.divider()
 
-
-# ── Fetch + Filter ────────────────────────────────────────────────────────────
 cat      = None if selected_cat == "All" else selected_cat
 products = get_products(category=cat, max_price=price_range[1], limit=100)
-
-products = [p for p in products if p.get("price", 0) >= price_range[0]]
+products = [p for p in products if p.get("price",  0) >= price_range[0]]
 products = [p for p in products if p.get("rating", 0) >= min_rating]
 if search.strip():
     q        = search.lower()
@@ -226,8 +224,6 @@ sort_map = {
 }
 products = sorted(products, key=sort_map[sort_by])
 
-
-# ── Empty state ───────────────────────────────────────────────────────────────
 if not products:
     st.markdown("""
     <div class="empty-state">
@@ -238,10 +234,6 @@ if not products:
     """, unsafe_allow_html=True)
     st.stop()
 
-
-# ════════════════════════════════════════════════════════════════════════════
-# PAGINATION LOGIC
-# ════════════════════════════════════════════════════════════════════════════
 total_books  = len(products)
 total_pages  = max(1, -(-total_books // BOOKS_PER_PAGE))
 
@@ -262,12 +254,7 @@ st.markdown(
     f"Page **{current_page}** of **{total_pages}**"
 )
 
-
-# ════════════════════════════════════════════════════════════════════════════
-# BOOK GRID
-# ════════════════════════════════════════════════════════════════════════════
 COLS_PER_ROW = 3
-
 for row_start in range(0, len(page_books), COLS_PER_ROW):
     row_books = page_books[row_start : row_start + COLS_PER_ROW]
     cols      = st.columns(COLS_PER_ROW)
@@ -298,7 +285,7 @@ for row_start in range(0, len(page_books), COLS_PER_ROW):
                         f"Tell me about '{book['title']}' "
                         f"and compare it with similar books"
                     )
-                    st.switch_page("pages/2_AIAssistant.py")
+                    st.switch_page("pages/2_AI_Assistant.py")   # ← FIXED
 
             b1, b2 = st.columns(2)
             with b1:
@@ -318,12 +305,7 @@ for row_start in range(0, len(page_books), COLS_PER_ROW):
                     st.session_state["buy_now_product"] = book
                     st.rerun()
 
-
-# ════════════════════════════════════════════════════════════════════════════
-# PAGINATION CONTROLS
-# ════════════════════════════════════════════════════════════════════════════
 st.divider()
-
 prev_col, info_col, next_col = st.columns([1, 3, 1])
 
 with prev_col:

@@ -1,5 +1,6 @@
 import os
 import uuid
+from typing import Optional
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -15,24 +16,25 @@ from memory.conversation_store import (
 
 
 def run_agent(
-    query:       str,
-    session_id:  str,
-    recommended_product_id: int = None
+    query:                  str,
+    session_id:             str,
+    user_id:                Optional[int] = None,        # ← ADDED
+    recommended_product_id: Optional[int] = None         # ← FIXED type hint
 ) -> dict:
     print("\n" + "=" * 65)
     print(f"👤 USER: {query}")
     print("=" * 65)
 
-    # ── Load history from memory ─────────────────────────────────────────────
     history      = get_history(session_id)
     last_context = get_last_context(session_id)
 
-    # Inherit recommended_product_id from memory if not provided
-    if not recommended_product_id:
+    # ← FIXED: was `if not recommended_product_id` — falsely skipped id=0
+    if recommended_product_id is None:
         recommended_product_id = last_context.get("product_id")
 
     initial_state: EcommerceState = {
         "session_id":             session_id,
+        "user_id":                user_id,               # ← ADDED
         "user_query":             query,
         "conversation_history":   history,
         "intent":                 "",
@@ -55,16 +57,15 @@ def run_agent(
 
     final_state = app.invoke(initial_state)
 
-    # ── Save turn to memory ──────────────────────────────────────────────────
     save_turn(
-        session_id=  session_id,
-        user_query=  query,
-        assistant_response= final_state["final_answer"],
-        intent=      final_state.get("intent"),
-        category=    final_state.get("category"),
-        budget=      final_state.get("budget"),
-        product_id=  final_state.get("recommended_product_id"),
-        order_id=    final_state.get("order_id"),
+        session_id=          session_id,
+        user_query=          query,
+        assistant_response=  final_state["final_answer"],
+        intent=              final_state.get("intent"),
+        category=            final_state.get("category"),
+        budget=              final_state.get("budget"),
+        product_id=          final_state.get("recommended_product_id"),
+        order_id=            final_state.get("order_id"),
     )
 
     print("\n" + "=" * 65)
@@ -77,36 +78,20 @@ def run_agent(
 
 
 if __name__ == "__main__":
-    # ── Same session — tests memory continuity ───────────────────────────────
     session = str(uuid.uuid4())
     print(f"\n🔑 Session ID: {session}\n")
 
-    # Turn 1 — recommendation
-    run_agent(
-        "I want a good book to learn machine learning under ₹1000",
-        session_id=session
-    )
+    run_agent("I want a good book to learn machine learning under ₹1000",
+              session_id=session, user_id=1)
 
-    # Turn 2 — "buy it" — should remember product from Turn 1
-    run_agent(
-        "buy it",
-        session_id=session
-    )
+    run_agent("buy it",
+              session_id=session, user_id=1)
 
-    # Turn 3 — track — should remember order from Turn 2
-    run_agent(
-        "where is my order",
-        session_id=session
-    )
+    run_agent("where is my order",
+              session_id=session, user_id=1)
 
-    # Turn 4 — new topic, no budget — should NOT inherit ML budget
-    run_agent(
-        "Compare deep learning books",
-        session_id=session
-    )
+    run_agent("Compare deep learning books",
+              session_id=session, user_id=1)
 
-    # Turn 5 — return — should remember last order
-    run_agent(
-        "return my last order",
-        session_id=session
-    )
+    run_agent("return my last order",
+              session_id=session, user_id=1)

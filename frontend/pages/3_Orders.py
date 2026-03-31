@@ -3,14 +3,13 @@ import sys
 import os
 from collections import defaultdict
 
-# ── Path setup ────────────────────────────────────────────────────────────────
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, 'frontend'))
 
 from utils.session import require_login, render_sidebar_user, init_session
 from utils.api     import initiate_return
-from utils.error   import show_api_error, show_connection_banner   # ← Phase 11.5
+from utils.error   import show_api_error, show_connection_banner
 from auth.auth     import get_user_orders
 
 st.set_page_config(
@@ -20,7 +19,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ── Styles ────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
     .stApp { background-color: #0f1117; }
@@ -49,10 +47,8 @@ st.markdown("""
 init_session()
 user = require_login()
 render_sidebar_user()
-show_connection_banner()              # ← Phase 11.5 (correct position: after login)
+show_connection_banner()
 
-
-# ── Constants ─────────────────────────────────────────────────────────────────
 ORDER_FLOW  = ['confirmed', 'packed', 'shipped', 'out_for_delivery', 'delivered']
 RETURN_FLOW = ['return_initiated', 'pickup_scheduled', 'picked_up', 'refunded']
 
@@ -82,12 +78,11 @@ STATUS_COLORS = {
     'refunded':         '#4ade80',
 }
 
-ALL_STATUSES  = ['All'] + ORDER_FLOW + ['cancelled'] + RETURN_FLOW
-RETURNABLE    = {'delivered'}
+ALL_STATUSES   = ['All'] + ORDER_FLOW + ['cancelled'] + RETURN_FLOW
+RETURNABLE     = {'delivered'}
 NON_RETURNABLE = {'cancelled', 'return_initiated', 'pickup_scheduled', 'picked_up', 'refunded'}
 
 
-# ── Timeline renderer ─────────────────────────────────────────────────────────
 def render_timeline(status: str):
     is_return = status in RETURN_FLOW
     is_cancel = status == 'cancelled'
@@ -125,7 +120,6 @@ def render_timeline(status: str):
             )
 
 
-# ── Status badge ──────────────────────────────────────────────────────────────
 def status_badge(status: str) -> str:
     color = STATUS_COLORS.get(status, '#808090')
     label = STEP_META.get(status, ('', status.replace('_', ' ').title()))[1]
@@ -137,9 +131,7 @@ def status_badge(status: str) -> str:
     )
 
 
-# ════════════════════════════════════════════════════════════════════════════
-# SIDEBAR
-# ════════════════════════════════════════════════════════════════════════════
+# ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("### 📦 My Orders")
     st.divider()
@@ -150,16 +142,14 @@ with st.sidebar:
     if st.button("🛍️ Browse Books", use_container_width=True):
         st.switch_page("pages/1_Browse.py")
     if st.button("🤖 AI Assistant", use_container_width=True):
-        st.switch_page("pages/2_AIAssistant.py")
+        st.switch_page("pages/2_AI_Assistant.py")     # ← FIXED
     if st.button("🛒 Cart",         use_container_width=True):
         st.switch_page("pages/5_Cart.py")
     if st.button("🏠 Home",         use_container_width=True):
         st.switch_page("app.py")
 
 
-# ════════════════════════════════════════════════════════════════════════════
-# MAIN
-# ════════════════════════════════════════════════════════════════════════════
+# ── Main ──────────────────────────────────────────────────────────────────────
 st.markdown('<div class="page-title">📦 My Orders</div>', unsafe_allow_html=True)
 st.caption(f"Logged in as **{user['username']}** — showing only your orders")
 
@@ -168,7 +158,6 @@ all_orders = get_user_orders(user["id"])
 filtered = all_orders if filter_status == "All" \
            else [o for o in all_orders if o["status"] == filter_status]
 
-# Summary metrics
 st.divider()
 m1, m2, m3, m4 = st.columns(4)
 with m1:
@@ -193,23 +182,18 @@ st.divider()
 
 st.caption(f"{len(filtered)} order(s) shown")
 
-# ── Empty state ───────────────────────────────────────────────────────────────
 if not filtered:
     st.markdown("""
     <div class="empty-state">
         <div style="font-size:52px;">📭</div>
         <div style="font-size:20px; margin:12px 0;">No orders found</div>
-        <div style="font-size:14px;">
-            Try changing the filter, or go browse some books!
-        </div>
+        <div style="font-size:14px;">Try changing the filter, or go browse some books!</div>
     </div>
     """, unsafe_allow_html=True)
     if st.button("🛍️ Browse Books", type="primary"):
         st.switch_page("pages/1_Browse.py")
     st.stop()
 
-
-# ── Order cards ───────────────────────────────────────────────────────────────
 order_groups: dict = defaultdict(list)
 for row in filtered:
     order_groups[row["order_id"]].append(row)
@@ -217,7 +201,7 @@ for row in filtered:
 for order_id, items in order_groups.items():
     first   = items[0]
     status  = first["status"]
-    created = first["created_at"][:16] if first["created_at"] else "—"
+    created = str(first["created_at"])[:16] if first["created_at"] else "—"   # ← FIXED
     total   = sum(r.get("item_price", 0) * r.get("quantity", 1) for r in items)
 
     with st.container():
@@ -259,7 +243,6 @@ for order_id, items in order_groups.items():
 
         st.markdown("")
 
-        # Action buttons
         act1, act2, act3 = st.columns(3)
 
         with act1:
@@ -294,9 +277,8 @@ for order_id, items in order_groups.items():
                          use_container_width=True):
                 st.session_state["ai_prefill"] = \
                     f"Tell me about my order {order_id}"
-                st.switch_page("pages/2_AIAssistant.py")
+                st.switch_page("pages/2_AI_Assistant.py")    # ← FIXED
 
-        # ── Return form ───────────────────────────────────────────────────────
         if st.session_state.get(f"return_open_{order_id}"):
             with st.form(key=f"return_form_{order_id}"):
                 st.markdown("**↩️ Initiate Return**")
@@ -325,7 +307,6 @@ for order_id, items in order_groups.items():
                             st.session_state.get("session_id", "default"),
                             user_id=user["id"]
                         )
-                        # ── Phase 11.5: wrap return result ────────────────────
                         if not show_api_error(result, "initiating return"):
                             if result.get("return_id") or result.get("status"):
                                 st.success("✅ Return initiated successfully!")

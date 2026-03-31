@@ -3,26 +3,27 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(__file__))
 
-from utils.session import show_login_register, render_sidebar_user
-
-# ── AUTH GATE ─────────────────────────────────────────────
-if "user" not in st.session_state or not st.session_state["user"]:
-    show_login_register()
-    st.stop()                     # ← stops rest of page rendering
-# ──────────────────────────────────────────────────────────
-
-# Render logged-in user info in sidebar
-render_sidebar_user()
-
-from utils.session import init_session
-from utils.api     import get_products, get_categories
-
+# ── MUST be first Streamlit call ──────────────────────────────────────────────
 st.set_page_config(
     page_title="AI Book Store",
     page_icon="📚",
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+from utils.session import show_login_register, render_sidebar_user
+
+# ── AUTH GATE ─────────────────────────────────────────────────────────────────
+if "user" not in st.session_state or not st.session_state["user"]:
+    show_login_register()
+    st.stop()
+# ─────────────────────────────────────────────────────────────────────────────
+
+render_sidebar_user()
+
+from utils.session import init_session
+from utils.api     import get_products, get_categories
+
 
 st.markdown("""
 <style>
@@ -52,7 +53,7 @@ st.markdown("""
         border-radius: 10px; padding: 16px;
         text-align: center;
     }
-    .stat-num  { font-size: 32px; font-weight: 800; color: #e94560; }
+    .stat-num   { font-size: 32px; font-weight: 800; color: #e94560; }
     .stat-label { font-size: 13px; color: #808090; }
     .top-book-card {
         background: #1a1a2e; border: 1px solid #0f3460;
@@ -122,16 +123,16 @@ st.markdown("<br>", unsafe_allow_html=True)
 # ── Navigation Buttons ────────────────────────────────────────────────────────
 b1, b2, b3, b4 = st.columns(4)
 with b1:
-    if st.button("🛍️ Browse Books",  use_container_width=True, type="primary"):
+    if st.button("🛍️ Browse Books", use_container_width=True, type="primary"):
         st.switch_page("pages/1_Browse.py")
 with b2:
-    if st.button("🤖 AI Assistant",  use_container_width=True):
+    if st.button("🤖 AI Assistant", use_container_width=True):
         st.switch_page("pages/2_AI_Assistant.py")
 with b3:
-    if st.button("📦 My Orders",     use_container_width=True):
+    if st.button("📦 My Orders",    use_container_width=True):
         st.switch_page("pages/3_Orders.py")
 with b4:
-    if st.button("🛒 My Cart",       use_container_width=True):
+    if st.button("🛒 My Cart",      use_container_width=True):
         st.switch_page("pages/5_Cart.py")
 
 st.divider()
@@ -165,15 +166,12 @@ for col, book in zip(cols, top_books):
             st.session_state.detail_product_id = book["id"]
             st.switch_page("pages/4_Book_Detail.py")
 
-# ════════════════════════════════════════════════════════════════════════════
-# SIDEBAR
-# ════════════════════════════════════════════════════════════════════════════
+# ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("### 📚 AI Book Store")
     st.caption(f"Session: `{st.session_state.session_id[:16]}...`")
     st.divider()
 
-    # ── Cart indicator ────────────────────────────────────────────────────
     cart  = st.session_state.get("cart", [])
     total = sum(p["price"] for p in cart)
 
@@ -182,24 +180,21 @@ with st.sidebar:
         for p in cart:
             st.caption(f"• {p['title'][:28]}... — ₹{p['price']}")
         st.markdown(f"**Total: ₹{total:.0f}**")
-        if st.button("🛒 View Cart →",
-                     use_container_width=True, type="primary"):
+        if st.button("🛒 View Cart →", use_container_width=True, type="primary"):
             st.switch_page("pages/5_Cart.py")
     else:
         st.caption("🛒 Cart is empty")
-        if st.button("🛍️ Start Shopping",
-                     use_container_width=True, type="primary"):
+        if st.button("🛍️ Start Shopping", use_container_width=True, type="primary"):
             st.switch_page("pages/1_Browse.py")
 
     st.divider()
 
-    # ── Quick navigation ──────────────────────────────────────────────────
     st.markdown("**Navigation**")
-    if st.button("🛍️ Browse Books",    use_container_width=True):
+    if st.button("🛍️ Browse Books", use_container_width=True):
         st.switch_page("pages/1_Browse.py")
-    if st.button("🤖 AI Assistant",    use_container_width=True):
+    if st.button("🤖 AI Assistant", use_container_width=True):
         st.switch_page("pages/2_AI_Assistant.py")
-    if st.button("📦 My Orders",       use_container_width=True):
+    if st.button("📦 My Orders",    use_container_width=True):
         st.switch_page("pages/3_Orders.py")
 
     st.divider()

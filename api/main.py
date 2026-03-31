@@ -1,4 +1,5 @@
 import os
+import asyncio                                               # ← ADDED
 import traceback
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
@@ -9,7 +10,6 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from config.settings import APP_ENV, DEBUG, print_config_summary
 from api.routes import router
 
-# ── Print config on startup ───────────────────────────────────────────────────
 print_config_summary()
 
 app = FastAPI(
@@ -30,7 +30,6 @@ Multi-Agent AI Book Store — LangGraph-powered 7-agent system.
     redoc_url="/redoc",
 )
 
-# ── CORS ──────────────────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -39,16 +38,26 @@ app.add_middleware(
 )
 
 
+# ── Startup DB health check ───────────────────────────────────────────────────
+@app.on_event("startup")                                     # ← ADDED
+async def startup_db_check():
+    """Fail fast on startup if PostgreSQL is unreachable."""
+    try:
+        from db.connection import get_connection
+        conn = get_connection()
+        conn.close()
+        print("✅ PostgreSQL connection OK")
+    except Exception as e:
+        print(f"🔴 PostgreSQL connection FAILED on startup: {e}")
+        # Don't crash the app — just warn so uvicorn still starts
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # GLOBAL EXCEPTION HANDLERS
 # ════════════════════════════════════════════════════════════════════════════
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    """
-    Handles Pydantic validation errors (wrong request body, missing fields).
-    Returns clean 422 with exact field errors instead of raw Pydantic output.
-    """
     errors = []
     for err in exc.errors():
         field = " → ".join(str(e) for e in err["loc"])
@@ -57,19 +66,15 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     return JSONResponse(
         status_code=422,
         content={
-            "error":   "Validation Error",
-            "detail":  "Request body has invalid or missing fields.",
-            "fields":  errors,
+            "error":  "Validation Error",
+            "detail": "Request body has invalid or missing fields.",
+            "fields": errors,
         }
     )
 
 
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
-    """
-    Handles all HTTPExceptions raised in route handlers (404, 400, etc).
-    Returns consistent JSON format instead of Starlette's default.
-    """
     return JSONResponse(
         status_code=exc.status_code,
         content={
@@ -81,26 +86,19 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
-    """
-    Catches ANY unhandled exception — LangGraph crashes, DB errors, etc.
-    In development: returns full traceback.
-    In production: returns safe generic message.
-    """
     tb = traceback.format_exc()
     print(f"\n🔴 UNHANDLED EXCEPTION on {request.method} {request.url}\n{tb}")
 
     if DEBUG:
-        # Show full traceback in development
         return JSONResponse(
             status_code=500,
             content={
                 "error":     "Internal Server Error",
                 "detail":    str(exc),
-                "traceback": tb.splitlines()[-5:],   # last 5 lines only
+                "traceback": tb.splitlines()[-5:],
             }
         )
     else:
-        # Safe generic message in production
         return JSONResponse(
             status_code=500,
             content={
@@ -110,11 +108,9 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
         )
 
 
-@app.exception_handler(TimeoutError)
-async def timeout_exception_handler(request: Request, exc: TimeoutError):
-    """
-    Handles LLM / DB timeout errors specifically.
-    """
+@app.exception_handler(TimeoutError)                         # built-in (Python 3.11+)
+@app.exception_handler(asyncio.TimeoutError)                 # ← ADDED: Python ≤ 3.10
+async def timeout_exception_handler(request: Request, exc: Exception):
     print(f"⏱️  Timeout on {request.method} {request.url}")
     return JSONResponse(
         status_code=504,

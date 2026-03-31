@@ -25,7 +25,6 @@ init_session()
 
 PLACEHOLDER = "https://covers.openlibrary.org/b/isbn/0000000000-M.jpg"
 
-# ── Styles ────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
     .stApp { background-color: #0f1117; }
@@ -77,12 +76,14 @@ if not product_id:
     st.warning("⚠️ No book selected.")
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("🛍️ Browse Books", type="primary", width='stretch'):
+        if st.button("🛍️ Browse Books", type="primary",
+                     use_container_width=True):              # ← FIXED
             st.switch_page("pages/1_Browse.py")
     with c2:
-        if st.button("🏠 Home", width='stretch'):
+        if st.button("🏠 Home", use_container_width=True):  # ← FIXED
             st.switch_page("app.py")
     st.stop()
+
 
 # ── Load product ──────────────────────────────────────────────────────────────
 with st.spinner("Loading book details..."):
@@ -110,15 +111,15 @@ else:
 with st.sidebar:
     st.markdown("### 📖 Book Detail")
     st.divider()
-    if st.button("← Back to Browse", width='stretch'):
+    if st.button("← Back to Browse", use_container_width=True):   # ← FIXED
         st.switch_page("pages/1_Browse.py")
-    if st.button("🤖 AI Assistant",   width='stretch'):
-        st.switch_page("pages/2_AIAssistant.py")
-    if st.button("📦 My Orders",      width='stretch'):
+    if st.button("🤖 AI Assistant",   use_container_width=True):   # ← FIXED
+        st.switch_page("pages/2_AI_Assistant.py")                  # ← FIXED
+    if st.button("📦 My Orders",      use_container_width=True):   # ← FIXED
         st.switch_page("pages/3_Orders.py")
-    if st.button("🛒 Cart",           width='stretch'):
+    if st.button("🛒 Cart",           use_container_width=True):   # ← FIXED
         st.switch_page("pages/5_Cart.py")
-    if st.button("🏠 Home",           width='stretch'):
+    if st.button("🏠 Home",           use_container_width=True):   # ← FIXED
         st.switch_page("app.py")
 
 
@@ -131,17 +132,17 @@ with b2:
 st.divider()
 
 
-# ════════════════════════════════════════════════════════════════════════════
-# MAIN LAYOUT — Cover | Detail | Buy Box
-# ════════════════════════════════════════════════════════════════════════════
+# ── Main Layout ───────────────────────────────────────────────────────────────
 col_cover, col_detail, col_action = st.columns([1, 3, 1])
+
 
 # ── Cover ─────────────────────────────────────────────────────────────────────
 with col_cover:
     try:
-        st.image(cover, width='stretch')
+        st.image(cover, use_container_width=True)          # ← FIXED
     except Exception:
-        st.image(PLACEHOLDER, width='stretch')
+        st.image(PLACEHOLDER, use_container_width=True)    # ← FIXED
+
 
 # ── Detail ────────────────────────────────────────────────────────────────────
 with col_detail:
@@ -161,7 +162,6 @@ with col_detail:
     )
     st.markdown("")
 
-    # ── Tabs ──────────────────────────────────────────────────────────────────
     tab_desc, tab_reviews, tab_ai = st.tabs(
         ["📄 Description", "💬 Reviews", "🤖 AI Analysis"]
     )
@@ -230,11 +230,10 @@ with col_detail:
         for i, (label, query) in enumerate(ai_options):
             with (c1 if i % 2 == 0 else c2):
                 if st.button(label, key=f"ai_opt_{i}",
-                             width='stretch'):
+                             use_container_width=True):           # ← FIXED
                     st.session_state.ai_prefill = query
-                    st.switch_page("pages/2_AIAssistant.py")
+                    st.switch_page("pages/2_AI_Assistant.py")    # ← FIXED
 
-    # ── Similar Books ─────────────────────────────────────────────────────────
     st.markdown("---")
     st.markdown("### 📚 Similar Books")
 
@@ -247,11 +246,10 @@ with col_detail:
         for col, sim in zip(sim_cols, similar):
             sim_cover = sim.get("cover_url") or PLACEHOLDER
             with col:
-                # ✅ st.image() for similar book covers
                 try:
-                    st.image(sim_cover, width='stretch')
+                    st.image(sim_cover, use_container_width=True)       # ← FIXED
                 except Exception:
-                    st.image(PLACEHOLDER, width='stretch')
+                    st.image(PLACEHOLDER, use_container_width=True)     # ← FIXED
 
                 st.markdown(f"""
                 <div class="similar-card">
@@ -273,7 +271,7 @@ with col_detail:
                 """, unsafe_allow_html=True)
 
                 if st.button("📖 View", key=f"sim_{sim.get('id')}",
-                             width='stretch'):
+                             use_container_width=True):               # ← FIXED
                     st.session_state.detail_product_id = sim.get("id")
                     st.rerun()
     else:
@@ -292,7 +290,6 @@ with col_action:
         unsafe_allow_html=True
     )
 
-    # Stock indicator
     if stock == 0:
         st.markdown('<div class="stock-none">❌ Out of stock</div>',
                     unsafe_allow_html=True)
@@ -309,9 +306,8 @@ with col_action:
         unsafe_allow_html=True
     )
 
-    # Buy Now
     if stock > 0:
-        if st.button("⚡ Buy Now", width='stretch',
+        if st.button("⚡ Buy Now", use_container_width=True,          # ← FIXED
                      type="primary", key="detail_buy"):
             with st.spinner("Placing order..."):
                 result = place_order(
@@ -322,41 +318,41 @@ with col_action:
             if result.get("order_id"):
                 st.success(f"✅ Order placed!\n\n`{result['order_id']}`")
                 st.session_state.last_order_id = result["order_id"]
-                if st.button("📦 Track", width='stretch'):
+                if st.button("📦 Track", use_container_width=True):   # ← FIXED
                     st.switch_page("pages/3_Orders.py")
             else:
                 st.error(f"Failed: {result.get('error','Unknown')}")
     else:
-        st.button("⚡ Buy Now", width='stretch',
+        st.button("⚡ Buy Now", use_container_width=True,             # ← FIXED
                   type="primary", key="detail_buy_dis", disabled=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Cart
     if in_cart(pid):
-        if st.button("✅ Remove from Cart", width='stretch',
+        if st.button("✅ Remove from Cart", use_container_width=True, # ← FIXED
                      key="detail_cart"):
             remove_from_cart(pid)
             st.rerun()
         st.success("📦 In your cart")
     else:
         if stock > 0:
-            if st.button("🛒 Add to Cart", width='stretch',
+            if st.button("🛒 Add to Cart", use_container_width=True, # ← FIXED
                          key="detail_cart"):
                 add_to_cart(book)
                 st.rerun()
         else:
-            st.button("🛒 Out of Stock", width='stretch',
+            st.button("🛒 Out of Stock", use_container_width=True,   # ← FIXED
                       key="detail_cart_dis", disabled=True)
 
     st.markdown("---")
     st.caption("Not sure? Let AI help.")
-    if st.button("🤖 Ask AI", width='stretch', key="detail_ai"):
+    if st.button("🤖 Ask AI", use_container_width=True,              # ← FIXED
+                 key="detail_ai"):
         st.session_state.ai_prefill = (
             f"Should I buy '{book.get('title','')}' "
             f"by {book.get('author','')}? "
             f"Compare with similar books."
         )
-        st.switch_page("pages/2_AIAssistant.py")
+        st.switch_page("pages/2_AI_Assistant.py")                    # ← FIXED
 
     st.markdown('</div>', unsafe_allow_html=True)
