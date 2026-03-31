@@ -17,6 +17,7 @@ build/
 *.db
 *.sqlite3
 checkpoints.db
+data/products.db
 
 # VSCode
 .vscode/
@@ -27,3 +28,6 @@ Thumbs.db
 
 # LangSmith / API logs
 *.log
+
+
+.streamlit/secrets.toml
