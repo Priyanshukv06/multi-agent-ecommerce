@@ -1,12 +1,14 @@
 import json
 import os
 import sys
+import time
 import bcrypt
+import httpx
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, ROOT)
 
-from db.connection import get_connection          # ← psycopg2 connection
+from db.connection import get_connection
 
 books = [
 
@@ -763,6 +765,50 @@ books = [
 ]
 
 
+# ── Cover fetcher (called once per book at seed time) ─────────────────────────
+def fetch_cover_url(title: str, author: str) -> str | None:
+    """Tries Open Library first, falls back to Google Books."""
+    # ── Source 1: Open Library ────────────────────────
+    try:
+        query = f"{title} {author}".replace(" ", "+")
+        resp  = httpx.get(
+            f"https://openlibrary.org/search.json"
+            f"?q={query}&limit=1&fields=cover_i",
+            timeout=6.0
+        )
+        if resp.status_code == 200:
+            docs    = resp.json().get("docs", [])
+            cover_i = docs[0].get("cover_i") if docs else None
+            if cover_i:
+                return f"https://covers.openlibrary.org/b/id/{cover_i}-M.jpg"
+    except Exception:
+        pass
+
+    # ── Source 2: Google Books ────────────────────────
+    try:
+        query = f"intitle:{title} inauthor:{author}".replace(" ", "+")
+        resp  = httpx.get(
+            f"https://www.googleapis.com/books/v1/volumes"
+            f"?q={query}&maxResults=1&fields=items/volumeInfo/imageLinks",
+            timeout=6.0
+        )
+        if resp.status_code == 200:
+            items = resp.json().get("items", [])
+            if items:
+                links = items[0].get("volumeInfo", {}).get("imageLinks", {})
+                url   = (links.get("large") or links.get("medium") or
+                         links.get("thumbnail") or links.get("smallThumbnail"))
+                if url:
+                    url = url.replace("http://", "https://")
+                    url = url.replace("&edge=curl", "")
+                    return url
+    except Exception:
+        pass
+
+    return None
+
+
+# ── Password hasher ───────────────────────────────────────────────────────────
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(
         password.encode("utf-8"),
@@ -770,44 +816,50 @@ def hash_password(password: str) -> str:
     ).decode("utf-8")
 
 
+# ── Main seeder ───────────────────────────────────────────────────────────────
 def create_database():
-    conn   = get_connection()                    # ← FIXED: psycopg2
+    conn   = get_connection()
     cursor = conn.cursor()
 
-    # ── Drop all tables (CASCADE required in PostgreSQL) ─────────────────────
+    print("\n🗑️  Dropping existing tables...")
+
+    # ── Drop all tables with CASCADE ──────────────────────────────────────────
     for table in ["returns", "order_items", "orders",
                   "stock", "conversation_memory", "users", "products"]:
-        cursor.execute(f"DROP TABLE IF EXISTS {table} CASCADE")   # ← FIXED
+        cursor.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
+
+    print("✅ Tables dropped.\n📦 Creating schema...")
 
     # ── Users ─────────────────────────────────────────────────────────────────
     cursor.execute("""
         CREATE TABLE users (
-            id            SERIAL PRIMARY KEY,                     -- ← FIXED
+            id            SERIAL PRIMARY KEY,
             username      TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
             role          TEXT NOT NULL DEFAULT 'user',
-            created_at    TIMESTAMP DEFAULT NOW()                 -- ← FIXED
+            created_at    TIMESTAMP DEFAULT NOW()
         )
     """)
 
     # ── Products ──────────────────────────────────────────────────────────────
     cursor.execute("""
         CREATE TABLE products (
-            id          SERIAL PRIMARY KEY,                       -- ← FIXED
+            id          SERIAL PRIMARY KEY,
             title       TEXT NOT NULL,
             author      TEXT NOT NULL,
-            price       FLOAT NOT NULL,                          -- ← FIXED
-            rating      FLOAT NOT NULL,                          -- ← FIXED
+            price       FLOAT NOT NULL,
+            rating      FLOAT NOT NULL,
             category    TEXT NOT NULL,
             description TEXT NOT NULL,
-            reviews     TEXT NOT NULL
+            reviews     TEXT NOT NULL,
+            cover_url   TEXT                      -- ← NEW: stored at seed time
         )
     """)
 
     # ── Stock ─────────────────────────────────────────────────────────────────
     cursor.execute("""
         CREATE TABLE stock (
-            product_id INTEGER PRIMARY KEY REFERENCES products(id),   -- ← FIXED
+            product_id INTEGER PRIMARY KEY REFERENCES products(id),
             quantity   INTEGER NOT NULL DEFAULT 0
         )
     """)
@@ -815,56 +867,59 @@ def create_database():
     # ── Orders ────────────────────────────────────────────────────────────────
     cursor.execute("""
         CREATE TABLE orders (
-            id         SERIAL PRIMARY KEY,                        -- ← FIXED
+            id         SERIAL PRIMARY KEY,
             order_id   TEXT UNIQUE NOT NULL,
-            user_id    INTEGER NOT NULL REFERENCES users(id),     -- ← FIXED
+            user_id    INTEGER NOT NULL REFERENCES users(id),
             status     TEXT NOT NULL DEFAULT 'confirmed',
-            created_at TIMESTAMP DEFAULT NOW()                    -- ← FIXED
+            created_at TIMESTAMP DEFAULT NOW()
         )
     """)
 
     # ── Order Items ───────────────────────────────────────────────────────────
     cursor.execute("""
         CREATE TABLE order_items (
-            id         SERIAL PRIMARY KEY,                        -- ← FIXED
-            order_id   TEXT NOT NULL REFERENCES orders(order_id), -- ← FIXED
-            product_id INTEGER NOT NULL REFERENCES products(id),  -- ← FIXED
+            id         SERIAL PRIMARY KEY,
+            order_id   TEXT NOT NULL REFERENCES orders(order_id),
+            product_id INTEGER NOT NULL REFERENCES products(id),
             quantity   INTEGER NOT NULL DEFAULT 1,
-            price      FLOAT NOT NULL                            -- ← FIXED
+            price      FLOAT NOT NULL
         )
     """)
 
     # ── Returns ───────────────────────────────────────────────────────────────
     cursor.execute("""
         CREATE TABLE returns (
-            id         SERIAL PRIMARY KEY,                        -- ← FIXED
+            id         SERIAL PRIMARY KEY,
             return_id  TEXT UNIQUE NOT NULL,
-            order_id   TEXT NOT NULL REFERENCES orders(order_id), -- ← FIXED
-            user_id    INTEGER NOT NULL REFERENCES users(id),     -- ← FIXED
+            order_id   TEXT NOT NULL REFERENCES orders(order_id),
+            user_id    INTEGER NOT NULL REFERENCES users(id),
             reason     TEXT,
             status     TEXT NOT NULL DEFAULT 'initiated',
-            created_at TIMESTAMP DEFAULT NOW()                    -- ← FIXED
+            created_at TIMESTAMP DEFAULT NOW()
         )
     """)
 
     # ── Conversation Memory ───────────────────────────────────────────────────
     cursor.execute("""
         CREATE TABLE conversation_memory (
-            id         SERIAL PRIMARY KEY,                        -- ← FIXED
+            id         SERIAL PRIMARY KEY,
             session_id TEXT NOT NULL,
             user_id    INTEGER,
             role       TEXT NOT NULL,
             content    TEXT NOT NULL,
             intent     TEXT,
             category   TEXT,
-            budget     FLOAT,                                    -- ← FIXED
+            budget     FLOAT,
             product_id INTEGER,
             order_id   TEXT,
-            created_at TIMESTAMP DEFAULT NOW()                    -- ← FIXED
+            created_at TIMESTAMP DEFAULT NOW()
         )
     """)
 
+    print("✅ Schema created.\n")
+
     # ── Seed users ────────────────────────────────────────────────────────────
+    print("👤 Seeding users...")
     default_users = [
         ("admin", hash_password("admin123"), "admin"),
         ("user1", hash_password("user123"),  "user"),
@@ -873,48 +928,78 @@ def create_database():
     ]
     for username, pw_hash, role in default_users:
         cursor.execute(
-            "INSERT INTO users (username, password_hash, role) VALUES (%s, %s, %s)",  # ← FIXED
+            "INSERT INTO users (username, password_hash, role) VALUES (%s, %s, %s)",
             (username, pw_hash, role)
         )
+    print(f"✅ {len(default_users)} users seeded.\n")
 
     # ── Seed products + stock ─────────────────────────────────────────────────
-    for book in books:
+    print(f"📚 Seeding {len(books)} books (fetching covers from Open Library)...\n")
+
+    cover_found = 0
+    cover_miss  = 0
+
+    for i, book in enumerate(books, 1):
+        # Fetch cover — rate-limit to be polite to Open Library
+        cover_url = fetch_cover_url(book["title"], book["author"])
+        if cover_url:
+            cover_found += 1
+        else:
+            cover_miss += 1
+
         cursor.execute("""
             INSERT INTO products
-            (title, author, price, rating, category, description, reviews)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+                (title, author, price, rating, category, description, reviews, cover_url)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
-        """, (                                                     # ← FIXED: %s + RETURNING
-            book["title"], book["author"], book["price"],
-            book["rating"], book["category"],
-            book["description"], json.dumps(book["reviews"])
+        """, (
+            book["title"],
+            book["author"],
+            book["price"],
+            book["rating"],
+            book["category"],
+            book["description"],
+            json.dumps(book["reviews"]),
+            cover_url,
         ))
-        pid = cursor.fetchone()[0]                                 # ← FIXED: fetchone()[0]
+        pid = cursor.fetchone()[0]
+
         cursor.execute(
-            "INSERT INTO stock (product_id, quantity) VALUES (%s, %s)",  # ← FIXED
+            "INSERT INTO stock (product_id, quantity) VALUES (%s, %s)",
             (pid, book["stock"])
         )
+
+        cover_icon = "🖼️ " if cover_url else "📄"
+        print(f"  [{i:>3}/{len(books)}] {cover_icon} {book['title'][:48]}")
+
+        # ── Polite rate-limit: 1 req/sec to Open Library ──────────────────────
+        time.sleep(1.0)
 
     conn.commit()
     cursor.close()
     conn.close()
 
-    # ── Print summary ─────────────────────────────────────────────────────────
+    # ── Summary ───────────────────────────────────────────────────────────────
     cats = {}
     for b in books:
         cats[b["category"]] = cats.get(b["category"], 0) + 1
 
-    print(f"\n✅ PostgreSQL database seeded successfully!")
-    print(f"✅ {len(books)} books seeded across {len(cats)} categories")
-    print(f"✅ {len(default_users)} users seeded\n")
-    print("📚 Books per category:")
+    print(f"\n{'='*55}")
+    print(f"✅ PostgreSQL database seeded successfully!")
+    print(f"{'='*55}")
+    print(f"📚 {len(books)} books seeded across {len(cats)} categories")
+    print(f"🖼️  Covers found : {cover_found}/{len(books)}")
+    print(f"📄  Covers missed: {cover_miss}/{len(books)}")
+    print(f"👤 {len(default_users)} users seeded")
+    print(f"\n📂 Books per category:")
     for cat, count in sorted(cats.items()):
-        print(f"   {cat:<28} {count} books")
-    print("\n👤 Default accounts:")
-    print("   admin  / admin123  → role: admin")
-    print("   user1  / user123   → role: user")
-    print("   user2  / user123   → role: user")
-    print("   user3  / user123   → role: user")
+        print(f"   {cat:<30} {count} books")
+    print(f"\n👤 Default accounts:")
+    print(f"   admin  / admin123  → role: admin")
+    print(f"   user1  / user123   → role: user")
+    print(f"   user2  / user123   → role: user")
+    print(f"   user3  / user123   → role: user")
+    print(f"{'='*55}\n")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 import bcrypt
 from typing import Optional, List, Dict
-from db.connection import get_connection
+from db.connection import get_connection, get_cursor      # ← ADD get_cursor
 
 
 # ── Password Helpers ──────────────────────────────────────────────────────────
@@ -19,8 +19,8 @@ def verify_password(password: str, password_hash: str) -> bool:
 # ── User Queries ──────────────────────────────────────────────────────────────
 
 def get_user_by_username(username: str) -> Optional[Dict]:
-    conn = get_connection()
-    cursor = conn.cursor()
+    conn   = get_connection()
+    cursor = get_cursor(conn)                             # ← FIXED
     cursor.execute(
         "SELECT id, username, password_hash, role, created_at FROM users WHERE username = %s",
         (username,)
@@ -31,8 +31,8 @@ def get_user_by_username(username: str) -> Optional[Dict]:
 
 
 def get_user_by_id(user_id: int) -> Optional[Dict]:
-    conn = get_connection()
-    cursor = conn.cursor()
+    conn   = get_connection()
+    cursor = get_cursor(conn)                             # ← FIXED
     cursor.execute(
         "SELECT id, username, role, created_at FROM users WHERE id = %s",
         (user_id,)
@@ -43,8 +43,8 @@ def get_user_by_id(user_id: int) -> Optional[Dict]:
 
 
 def create_user(username: str, password: str, role: str = "user") -> Optional[Dict]:
-    conn = get_connection()
-    cursor = conn.cursor()
+    conn   = get_connection()
+    cursor = get_cursor(conn)                             # ← FIXED
     try:
         cursor.execute(
             "INSERT INTO users (username, password_hash, role) VALUES (%s, %s, %s) RETURNING id",
@@ -61,8 +61,8 @@ def create_user(username: str, password: str, role: str = "user") -> Optional[Di
 
 
 def get_all_users() -> List[Dict]:
-    conn = get_connection()
-    cursor = conn.cursor()
+    conn   = get_connection()
+    cursor = get_cursor(conn)                             # ← FIXED
     cursor.execute("SELECT id, username, role, created_at FROM users ORDER BY created_at DESC")
     rows = cursor.fetchall()
     conn.close()
@@ -72,8 +72,8 @@ def get_all_users() -> List[Dict]:
 # ── Order Queries ─────────────────────────────────────────────────────────────
 
 def get_user_orders(user_id: int) -> List[Dict]:
-    conn = get_connection()
-    cursor = conn.cursor()
+    conn   = get_connection()
+    cursor = get_cursor(conn)                             # ← FIXED
     cursor.execute("""
         SELECT
             o.order_id,
@@ -98,8 +98,8 @@ def get_user_orders(user_id: int) -> List[Dict]:
 
 
 def get_all_orders_admin() -> List[Dict]:
-    conn = get_connection()
-    cursor = conn.cursor()
+    conn   = get_connection()
+    cursor = get_cursor(conn)                             # ← FIXED
     cursor.execute("""
         SELECT
             o.order_id,
@@ -128,9 +128,12 @@ def update_order_status(order_id: str, new_status: str) -> bool:
     ]
     if new_status not in valid:
         return False
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("UPDATE orders SET status = %s WHERE order_id = %s", (new_status, order_id))
+    conn   = get_connection()
+    cursor = get_cursor(conn)                             # ← FIXED
+    cursor.execute(
+        "UPDATE orders SET status = %s WHERE order_id = %s",
+        (new_status, order_id)
+    )
     conn.commit()
     affected = cursor.rowcount
     conn.close()
@@ -138,8 +141,8 @@ def update_order_status(order_id: str, new_status: str) -> bool:
 
 
 def clear_all_orders() -> int:
-    conn = get_connection()
-    cursor = conn.cursor()
+    conn   = get_connection()
+    cursor = get_cursor(conn)                             # ← FIXED
     cursor.execute("SELECT COUNT(*) AS cnt FROM orders")
     count = cursor.fetchone()["cnt"]
     cursor.execute("DELETE FROM order_items")
@@ -153,17 +156,20 @@ def clear_all_orders() -> int:
 # ── Stock Queries ─────────────────────────────────────────────────────────────
 
 def get_stock(product_id: int) -> int:
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT quantity FROM stock WHERE product_id = %s", (product_id,))
+    conn   = get_connection()
+    cursor = get_cursor(conn)                             # ← FIXED
+    cursor.execute(
+        "SELECT quantity FROM stock WHERE product_id = %s",
+        (product_id,)
+    )
     row = cursor.fetchone()
     conn.close()
     return row["quantity"] if row else 0
 
 
 def update_stock(product_id: int, new_quantity: int) -> bool:
-    conn = get_connection()
-    cursor = conn.cursor()
+    conn   = get_connection()
+    cursor = get_cursor(conn)                             # ← FIXED
     cursor.execute(
         "INSERT INTO stock (product_id, quantity) VALUES (%s, %s) "
         "ON CONFLICT (product_id) DO UPDATE SET quantity = EXCLUDED.quantity",

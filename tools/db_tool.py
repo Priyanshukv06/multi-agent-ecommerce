@@ -1,8 +1,9 @@
 import json
+import uuid
 from typing import List, Optional
 from datetime import datetime, timedelta
 from state.schema import ProductItem
-from db.connection import get_connection
+from db.connection import get_connection, get_cursor          # ← ADD get_cursor
 
 
 # ── Product Operations ────────────────────────────────────────────────────────
@@ -14,7 +15,7 @@ def search_products(
     limit:      int             = 5
 ) -> List[ProductItem]:
     conn   = get_connection()
-    cursor = conn.cursor()
+    cursor = get_cursor(conn)                                  # ← FIXED
 
     query  = """
         SELECT id, title, author, price, rating, category,
@@ -50,9 +51,9 @@ def search_products(
     ]
 
 
-def get_product_by_id(product_id: int) -> Optional[ProductItem]:
+def get_product_by_id(product_id: int) -> Optional[dict]:
     conn   = get_connection()
-    cursor = conn.cursor()
+    cursor = get_cursor(conn)                                  # ← FIXED
     cursor.execute("""
         SELECT id, title, author, price, rating, category,
                description, reviews, cover_url
@@ -64,18 +65,22 @@ def get_product_by_id(product_id: int) -> Optional[ProductItem]:
     if not row:
         return None
 
-    return ProductItem(
-        id=row["id"], title=row["title"], author=row["author"],
-        price=row["price"], rating=row["rating"], category=row["category"],
-        description=row["description"],
-        reviews=row["reviews"] if isinstance(row["reviews"], list) else json.loads(row["reviews"]),
-        cover_url=row["cover_url"]
-    )
+    return {
+        "id":          row["id"],
+        "title":       row["title"],
+        "author":      row["author"],
+        "price":       row["price"],
+        "rating":      row["rating"],
+        "category":    row["category"],
+        "description": row["description"],
+        "reviews":     row["reviews"] if isinstance(row["reviews"], list) else json.loads(row["reviews"]),
+        "cover_url":   row["cover_url"],
+    }
 
 
 def get_all_categories() -> List[str]:
     conn   = get_connection()
-    cursor = conn.cursor()
+    cursor = get_cursor(conn)                                  # ← FIXED
     cursor.execute("SELECT DISTINCT category FROM products ORDER BY category")
     rows = cursor.fetchall()
     conn.close()
@@ -84,8 +89,8 @@ def get_all_categories() -> List[str]:
 
 def get_price_range() -> dict:
     conn   = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT MIN(price), MAX(price), AVG(price) FROM products")
+    cursor = get_cursor(conn)                                  # ← FIXED
+    cursor.execute("SELECT MIN(price) AS min, MAX(price) AS max, AVG(price) AS avg FROM products")
     row = cursor.fetchone()
     conn.close()
     return {"min": row["min"], "max": row["max"], "avg": round(row["avg"], 2)}
@@ -93,16 +98,38 @@ def get_price_range() -> dict:
 
 # ── Order Operations ──────────────────────────────────────────────────────────
 
-def place_order(product_id: int, user_id: str = "default_user") -> str:
+def place_order(product_id: int, user_id: int) -> str:       # ← FIXED: int not str
     conn   = get_connection()
-    cursor = conn.cursor()
+    cursor = get_cursor(conn)                                  # ← FIXED
+
+    # Generate unique order_id
     cursor.execute("SELECT COUNT(*) AS cnt FROM orders")
     count    = cursor.fetchone()["cnt"]
     order_id = f"ORD-{count + 1:05d}"
+
+    # Get product price for order_items
+    cursor.execute("SELECT price FROM products WHERE id = %s", (product_id,))
+    product  = cursor.fetchone()
+    price    = product["price"] if product else 0.0
+
+    # ← FIXED: INSERT into orders (no product_id column there)
     cursor.execute(
-        "INSERT INTO orders (order_id, product_id, user_id, status) VALUES (%s, %s, %s, %s)",
-        (order_id, product_id, user_id, "confirmed")
+        "INSERT INTO orders (order_id, user_id, status) VALUES (%s, %s, %s)",
+        (order_id, user_id, "confirmed")
     )
+
+    # ← FIXED: INSERT product into order_items (correct table)
+    cursor.execute(
+        "INSERT INTO order_items (order_id, product_id, quantity, price) VALUES (%s, %s, %s, %s)",
+        (order_id, product_id, 1, price)
+    )
+
+    # Decrement stock
+    cursor.execute(
+        "UPDATE stock SET quantity = quantity - 1 WHERE product_id = %s AND quantity > 0",
+        (product_id,)
+    )
+
     conn.commit()
     conn.close()
     return order_id
@@ -110,12 +137,17 @@ def place_order(product_id: int, user_id: str = "default_user") -> str:
 
 def get_order(order_id: str) -> Optional[dict]:
     conn   = get_connection()
-    cursor = conn.cursor()
+    cursor = get_cursor(conn)                                  # ← FIXED
+
+    # ← FIXED: JOIN through order_items (orders has no product_id column)
     cursor.execute("""
-        SELECT o.order_id, o.product_id, o.user_id, o.status, o.created_at,
-               p.title, p.price, p.author
+        SELECT
+            o.order_id, o.user_id, o.status, o.created_at,
+            oi.product_id, oi.price,
+            p.title, p.author
         FROM orders o
-        JOIN products p ON o.product_id = p.id
+        JOIN order_items oi ON o.order_id    = oi.order_id
+        JOIN products    p  ON oi.product_id = p.id
         WHERE o.order_id = %s
     """, (order_id,))
     row = cursor.fetchone()
@@ -140,8 +172,8 @@ def get_order(order_id: str) -> Optional[dict]:
         delivery_status = "Out for Delivery"
         location        = "Delivery Partner"
     else:
-        delivery_status = "Processing"
-        location        = "Warehouse"
+        delivery_status = "Delivered"
+        location        = "Delivered to Address"
 
     eta = (created_at + timedelta(days=5)).strftime("%d %b %Y")
 
@@ -161,29 +193,40 @@ def get_order(order_id: str) -> Optional[dict]:
     }
 
 
-def get_user_orders(user_id: str = "default_user") -> List[dict]:
+def get_user_orders(user_id: int) -> List[dict]:             # ← FIXED: int not str
     conn   = get_connection()
-    cursor = conn.cursor()
+    cursor = get_cursor(conn)                                  # ← FIXED
+
+    # ← FIXED: JOIN through order_items
     cursor.execute("""
-        SELECT o.order_id, o.status, o.created_at, p.title, p.price
+        SELECT
+            o.order_id, o.status, o.created_at,
+            p.title, oi.price
         FROM orders o
-        JOIN products p ON o.product_id = p.id
+        JOIN order_items oi ON o.order_id    = oi.order_id
+        JOIN products    p  ON oi.product_id = p.id
         WHERE o.user_id = %s
         ORDER BY o.created_at DESC
         LIMIT 10
     """, (user_id,))
     rows = cursor.fetchall()
     conn.close()
+
     return [
-        {"order_id": r["order_id"], "status": r["status"],
-         "created_at": str(r["created_at"]), "title": r["title"], "price": r["price"]}
+        {
+            "order_id":   r["order_id"],
+            "status":     r["status"],
+            "created_at": str(r["created_at"]),
+            "title":      r["title"],
+            "price":      r["price"],
+        }
         for r in rows
     ]
 
 
 def cancel_order(order_id: str) -> bool:
     conn   = get_connection()
-    cursor = conn.cursor()
+    cursor = get_cursor(conn)                                  # ← FIXED
     cursor.execute(
         "UPDATE orders SET status='cancelled' WHERE order_id=%s",
         (order_id,)
@@ -199,10 +242,10 @@ def cancel_order(order_id: str) -> bool:
 def initiate_return(
     order_id: str,
     reason:   str = "Not specified",
-    user_id:  str = "default_user"
+    user_id:  int = None                                      # ← FIXED: int not str
 ) -> Optional[str]:
     conn   = get_connection()
-    cursor = conn.cursor()
+    cursor = get_cursor(conn)                                  # ← FIXED
 
     cursor.execute(
         "SELECT status, created_at FROM orders WHERE order_id=%s AND user_id=%s",
@@ -252,7 +295,7 @@ def initiate_return(
 
 def get_return_status(return_id: str) -> Optional[dict]:
     conn   = get_connection()
-    cursor = conn.cursor()
+    cursor = get_cursor(conn)                                  # ← FIXED
     cursor.execute(
         "SELECT return_id, order_id, status, reason, created_at "
         "FROM returns WHERE return_id=%s",

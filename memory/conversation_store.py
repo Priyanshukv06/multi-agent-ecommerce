@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import List, Optional
-from db.connection import get_connection
+from db.connection import get_connection, get_cursor          # ← ADD get_cursor
 
 
 def save_turn(
@@ -14,7 +14,7 @@ def save_turn(
     order_id:    Optional[str]   = None,
 ):
     conn   = get_connection()
-    cursor = conn.cursor()
+    cursor = get_cursor(conn)                                  # ← FIXED
 
     for role, content in [("user", user_query), ("assistant", assistant_response)]:
         cursor.execute("""
@@ -29,7 +29,7 @@ def save_turn(
 
 def get_history(session_id: str, limit: int = 6) -> List[dict]:
     conn   = get_connection()
-    cursor = conn.cursor()
+    cursor = get_cursor(conn)                                  # ← FIXED
     cursor.execute("""
         SELECT role, content, intent, category, budget, product_id, order_id, created_at
         FROM conversation_memory
@@ -58,7 +58,7 @@ def get_history(session_id: str, limit: int = 6) -> List[dict]:
 
 def get_last_context(session_id: str) -> dict:
     conn   = get_connection()
-    cursor = conn.cursor()
+    cursor = get_cursor(conn)                                  # ← FIXED
     cursor.execute("""
         SELECT intent, category, budget, product_id, order_id
         FROM conversation_memory
@@ -84,7 +84,7 @@ def get_last_context(session_id: str) -> dict:
 
 def clear_session(session_id: str):
     conn   = get_connection()
-    cursor = conn.cursor()
+    cursor = get_cursor(conn)                                  # ← FIXED
     cursor.execute("DELETE FROM conversation_memory WHERE session_id = %s", (session_id,))
     conn.commit()
     conn.close()
