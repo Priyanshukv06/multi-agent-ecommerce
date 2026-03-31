@@ -61,6 +61,8 @@ flowchart TD
 
 ## 🗂️ Project Structure
 
+---
+
 multi-agent-ecommerce/
 │
 ├── api/ # FastAPI application
