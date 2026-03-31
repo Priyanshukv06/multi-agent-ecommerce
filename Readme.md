@@ -35,40 +35,29 @@ streaming chat, PostgreSQL backend, and full order management.**
 
 ## 🏗️ Architecture
 
-┌─────────────────────────────────────────────────────┐
-│ Streamlit Frontend │
-│ Browse │ Chat │ Orders │ Admin │ Book Detail │
-└────────────────────┬────────────────────────────────┘
-│ REST / SSE
-┌────────────────────▼────────────────────────────────┐
-│ FastAPI Backend │
-│ /chat/stream /products /order /track /return │
-└────────────────────┬────────────────────────────────┘
-│
-┌────────────────────▼────────────────────────────────┐
-│ LangGraph Multi-Agent Pipeline │
-│ │
-│ User Query │
-│ │ │
-│ ▼ │
-│ 🧠 Planner Agent → decides which agents to call │
-│ │ │
-│ ├──▶ 🔍 Search Agent → queries PostgreSQL │
-│ ├──▶ 🔬 Research Agent → deep book analysis │
-│ ├──▶ ⚖️ Comparison Agent → compares options │
-│ ├──▶ 🎯 Recommendation Agent → ranks results │
-│ ├──▶ 🎭 Critic Agent → quality check │
-│ └──▶ ⚡ Action Agent → place/track orders │
-│ │
-└────────────────────┬────────────────────────────────┘
-│
-┌────────────────────▼────────────────────────────────┐
-│ Supabase PostgreSQL │
-│ products │ orders │ order_items │ returns │
-│ users │ stock │ conversation_memory │
-└─────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    A["🖥️ Streamlit Frontend\nBrowse | Chat | Orders | Admin"] 
+    B["⚡ FastAPI Backend\n/chat/stream | /products | /order | /track | /return"]
+    C["🧠 Planner Agent\nintent classification + routing"]
+    D["🔍 Search Agent\nqueries PostgreSQL"]
+    E["🔬 Research Agent\ndeep book analysis"]
+    F["⚖️ Comparison Agent\ncompares options"]
+    G["🎯 Recommendation Agent\nranks results"]
+    H["🎭 Critic Agent\nquality check"]
+    I["⚡ Action Agent\nplace / track orders"]
+    J["🗄️ Supabase PostgreSQL\nproducts | orders | users | memory"]
 
----
+    A -->|REST / SSE| B
+    B --> C
+    C --> D
+    C --> E
+    C --> F
+    C --> G
+    C --> H
+    C --> I
+    D & E & F & G & H & I --> J
+```
 
 ## 🗂️ Project Structure
 
