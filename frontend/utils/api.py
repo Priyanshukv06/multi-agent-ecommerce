@@ -7,7 +7,19 @@ sys.path.insert(0, ROOT)
 import requests
 import json as _json
 from typing import Generator
-from config.settings import API_BASE_URL
+
+
+# ── Read API_BASE_URL from secrets (cloud) or .env (local) ───────────────────
+def _get_api_base() -> str:
+    try:
+        import streamlit as st
+        if "API_URL" in st.secrets:
+            return st.secrets["API_URL"].rstrip("/") + "/api/v1"
+    except Exception:
+        pass
+    return os.getenv("API_URL", "http://localhost:8000").rstrip("/") + "/api/v1"
+
+API_BASE_URL = _get_api_base()
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
@@ -69,15 +81,6 @@ def call_chat_stream(
     session_id: str,
     user_id:    int = None
 ) -> Generator[dict, None, None]:
-    """
-    Streams AI response as SSE events. Yields dicts:
-      {"type": "token",   "content": "word "}   ← one per word
-      {"type": "done",    "intent": ...,
-       "recommended_product": ...,
-       "ranked_products": ...,
-       "order_id": ...}                          ← final metadata
-      {"type": "error",   "content": "..."}      ← on failure
-    """
     data = {"query": query, "session_id": session_id}
     if user_id:
         data["user_id"] = user_id
@@ -92,13 +95,13 @@ def call_chat_stream(
             resp.raise_for_status()
             for raw_line in resp.iter_lines():
                 if raw_line and raw_line.startswith(b"data: "):
-                    payload = raw_line[6:]          # strip "data: " prefix
+                    payload = raw_line[6:]
                     yield _json.loads(payload)
 
     except requests.ConnectionError:
-        yield {"type": "error", "content": "⚠️ API server is not running. Start it with: uvicorn api.main:app --reload"}
+        yield {"type": "error", "content": "⚠️ API server is not running."}
     except requests.Timeout:
-        yield {"type": "error", "content": "⚠️ Request timed out. AI pipeline is taking too long."}
+        yield {"type": "error", "content": "⚠️ Request timed out."}
     except Exception as e:
         yield {"type": "error", "content": str(e)}
 
@@ -152,7 +155,6 @@ def place_order(product_id: int, session_id: str, user_id: int = None) -> dict:
 
 
 def place_bulk_orders(product_ids: list, session_id: str) -> list:
-    """Place multiple orders one by one, return list of results."""
     return [place_order(pid, session_id) for pid in product_ids]
 
 
