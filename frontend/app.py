@@ -1,7 +1,24 @@
 import streamlit as st
 import sys
 import os
+import requests
 sys.path.insert(0, os.path.dirname(__file__))
+
+def _wake_up_api():
+    """Ping Render to wake it from cold start — shows spinner while waiting."""
+    try:
+        import streamlit as st
+        api_url = st.secrets.get("API_URL", os.getenv("API_URL", "http://localhost:8000"))
+        
+        with st.spinner("🔄 Connecting to server... (first load may take ~30 seconds)"):
+            resp = requests.get(f"{api_url}/api/v1/health", timeout=60)
+            if resp.status_code == 200:
+                return True
+    except Exception:
+        pass
+    return False
+
+_wake_up_api()
 
 # ── MUST be first Streamlit call ──────────────────────────────────────────────
 st.set_page_config(

@@ -29,7 +29,7 @@ def _get(endpoint: str, params: dict = None):
         resp = requests.get(
             f"{API_BASE_URL}{endpoint}",
             params=params,
-            timeout=10
+            timeout=60
         )
         resp.raise_for_status()
         return resp.json()
