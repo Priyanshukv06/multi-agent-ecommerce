@@ -1,6 +1,7 @@
 import streamlit as st
 import sys
 import os
+from collections import defaultdict
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.insert(0, ROOT)
@@ -13,8 +14,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-from utils.session import require_admin, render_sidebar_user
-from auth.auth     import (
+from utils.session  import require_admin, render_sidebar_user
+from tools.db_tool  import search_products                  # ← ADDED for stock manager
+from auth.auth      import (
     get_all_users,
     get_all_orders_admin,
     update_order_status,
@@ -23,13 +25,9 @@ from auth.auth     import (
     update_stock,
 )
 
-import sqlite3
-
-user = require_admin()          # blocks non-admins automatically
+user = require_admin()
 render_sidebar_user()
 
-
-# ── Styles ────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
     .stApp { background-color: #0f1117; }
@@ -43,8 +41,7 @@ st.markdown("""
     .stat-num   { font-size: 36px; font-weight: 800; color: #e94560; }
     .stat-label { font-size: 13px; color: #808090; margin-top: 4px; }
     .section-title {
-        font-size: 20px; font-weight: 700;
-        color: #e0e0e0; margin: 20px 0 10px 0;
+        font-size: 20px; font-weight: 700; color: #e0e0e0; margin: 20px 0 10px 0;
     }
     .order-row {
         background: #1a1a2e; border: 1px solid #0f3460;
@@ -65,8 +62,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-
-# ── Constants ─────────────────────────────────────────────────────────────────
 ORDER_STATUSES = [
     'confirmed', 'packed', 'shipped',
     'out_for_delivery', 'delivered',
@@ -87,7 +82,6 @@ STATUS_COLORS = {
     'refunded':         '#4ade80',
 }
 
-
 def status_badge(status: str) -> str:
     color = STATUS_COLORS.get(status, '#808090')
     label = status.replace('_', ' ').title()
@@ -99,46 +93,36 @@ def status_badge(status: str) -> str:
     )
 
 
-# ════════════════════════════════════════════════════════════════════════════
-# SIDEBAR
-# ════════════════════════════════════════════════════════════════════════════
+# ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("### 👑 Admin Panel")
     st.divider()
-    if st.button("🛍️ Browse Books",  use_container_width=True):
+    if st.button("🛍️ Browse Books", use_container_width=True):
         st.switch_page("pages/1_Browse.py")
-    if st.button("📦 All Orders",    use_container_width=True):
+    if st.button("📦 All Orders",   use_container_width=True):
         st.switch_page("pages/3_Orders.py")
-    if st.button("🏠 Home",          use_container_width=True):
+    if st.button("🏠 Home",         use_container_width=True):
         st.switch_page("app.py")
 
 
-# ════════════════════════════════════════════════════════════════════════════
-# HEADER
-# ════════════════════════════════════════════════════════════════════════════
+# ── Header ────────────────────────────────────────────────────────────────────
 st.markdown('<div class="page-title">👑 Admin Dashboard</div>',
             unsafe_allow_html=True)
 st.caption(f"Logged in as **{user['username']}** (Admin)")
 st.divider()
 
-
-# ── Load data ─────────────────────────────────────────────────────────────────
 all_orders = get_all_orders_admin()
 all_users  = get_all_users()
 
-# Unique orders (multiple rows per order due to items join)
 unique_order_ids = list(dict.fromkeys(o["order_id"] for o in all_orders))
 
-
-# ════════════════════════════════════════════════════════════════════════════
-# STATS ROW
-# ════════════════════════════════════════════════════════════════════════════
+# ── Stats ─────────────────────────────────────────────────────────────────────
 total_orders    = len(unique_order_ids)
 total_users     = len([u for u in all_users if u["role"] == "user"])
 delivered_count = len(set(
     o["order_id"] for o in all_orders if o["status"] == "delivered"
 ))
-revenue         = sum(
+revenue = sum(
     o.get("item_price", 0) * o.get("quantity", 1)
     for o in all_orders
     if o["status"] not in ("cancelled", "refunded")
@@ -146,10 +130,10 @@ revenue         = sum(
 
 c1, c2, c3, c4 = st.columns(4)
 stats = [
-    (str(total_orders),    "Total Orders"),
-    (str(total_users),     "Registered Users"),
-    (str(delivered_count), "Delivered"),
-    (f"₹{revenue:,.0f}",  "Total Revenue"),
+    (str(total_orders),   "Total Orders"),
+    (str(total_users),    "Registered Users"),
+    (str(delivered_count),"Delivered"),
+    (f"₹{revenue:,.0f}", "Total Revenue"),
 ]
 for col, (num, label) in zip([c1, c2, c3, c4], stats):
     with col:
@@ -162,10 +146,13 @@ for col, (num, label) in zip([c1, c2, c3, c4], stats):
 
 st.markdown("")
 
+# ── Group orders BEFORE tabs so both tab_orders and tab_users can use it ──────
+order_groups: dict = defaultdict(list)           # ← MOVED outside tabs
+for row in all_orders:
+    order_groups[row["order_id"]].append(row)
 
-# ════════════════════════════════════════════════════════════════════════════
-# TABS
-# ════════════════════════════════════════════════════════════════════════════
+
+# ── Tabs ──────────────────────────────────────────────────────────────────────
 tab_orders, tab_users, tab_stock, tab_danger = st.tabs([
     f"📦 Orders ({total_orders})",
     f"👥 Users ({total_users})",
@@ -181,7 +168,6 @@ with tab_orders:
     st.markdown('<div class="section-title">📦 All Orders — Simulate Status</div>',
                 unsafe_allow_html=True)
 
-    # Filter controls
     fc1, fc2, fc3 = st.columns(3)
     with fc1:
         filter_user = st.selectbox(
@@ -201,13 +187,6 @@ with tab_orders:
 
     st.divider()
 
-    # Group rows by order_id
-    from collections import defaultdict
-    order_groups: dict = defaultdict(list)
-    for row in all_orders:
-        order_groups[row["order_id"]].append(row)
-
-    # Apply filters
     filtered_orders = {}
     for oid, items in order_groups.items():
         first = items[0]
@@ -234,7 +213,7 @@ with tab_orders:
             first   = items[0]
             status  = first.get("status", "confirmed")
             uname   = first.get("username", "unknown")
-            created = first.get("created_at", "")[:16]
+            created = str(first.get("created_at", ""))[:16]   # ← FIXED
             total   = sum(
                 r.get("item_price", 0) * r.get("quantity", 1) for r in items
             )
@@ -292,9 +271,8 @@ with tab_users:
     st.markdown('<div class="section-title">👥 Registered Users</div>',
                 unsafe_allow_html=True)
 
-    # Per-user order counts
     user_order_counts = defaultdict(int)
-    for oid, items in order_groups.items():
+    for oid, items in order_groups.items():        # ← now safe — defined above tabs
         uname = items[0].get("username", "")
         user_order_counts[uname] += 1
 
@@ -305,7 +283,7 @@ with tab_users:
             else '<span class="badge-user">👤 User</span>'
         )
         order_count = user_order_counts.get(u["username"], 0)
-        joined      = u.get("created_at", "")[:10]
+        joined      = str(u.get("created_at", ""))[:10]    # ← FIXED
 
         st.markdown('<div class="user-row">', unsafe_allow_html=True)
         uc1, uc2, uc3 = st.columns([2, 2, 2])
@@ -332,10 +310,9 @@ with tab_users:
 
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # Show filtered orders if admin clicked "View Orders"
     if st.session_state.get("admin_filter_user"):
         target = st.session_state.admin_filter_user
-        st.markdown(f"---")
+        st.markdown("---")
         st.markdown(f"**📦 Orders for `{target}`**")
 
         user_orders = {
@@ -353,8 +330,7 @@ with tab_users:
                     r.get("item_price", 0) * r.get("quantity", 1) for r in items
                 )
                 st.markdown(
-                    f'`{oid}` &nbsp; {status_badge(status)} &nbsp; '
-                    f'₹{total:,.0f}',
+                    f'`{oid}` &nbsp; {status_badge(status)} &nbsp; ₹{total:,.0f}',
                     unsafe_allow_html=True
                 )
                 for item in items:
@@ -370,31 +346,24 @@ with tab_users:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# TAB 3 — STOCK MANAGER
+# TAB 3 — STOCK MANAGER  ← FIXED: replaced SQLite with psycopg2 tools
 # ════════════════════════════════════════════════════════════════════════════
 with tab_stock:
     st.markdown('<div class="section-title">📚 Stock Manager</div>',
                 unsafe_allow_html=True)
 
-    DB_PATH = os.path.join(ROOT, "data", "products.db")
-
     @st.cache_data(ttl=10)
     def load_products_with_stock():
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute("""
-            SELECT p.id, p.title, p.author, p.category, p.price,
-                   COALESCE(s.quantity, 0) AS stock
-            FROM products p
-            LEFT JOIN stock s ON p.id = s.product_id
-            ORDER BY p.category, p.title
-        """).fetchall()
-        conn.close()
-        return [dict(r) for r in rows]
+        """Load all products with their stock levels via PostgreSQL tools."""
+        products = search_products(limit=500, min_rating=0.0)   # ← FIXED: no SQLite
+        result   = []
+        for p in products:
+            p["stock"] = get_stock(p["id"])                     # ← uses psycopg2
+            result.append(p)
+        return sorted(result, key=lambda x: (x.get("category",""), x.get("title","")))
 
     products_stock = load_products_with_stock()
 
-    # Filter
     sc1, sc2 = st.columns([2, 1])
     with sc1:
         stock_search = st.text_input(
@@ -406,10 +375,10 @@ with tab_stock:
 
     filtered_products = products_stock
     if stock_search.strip():
-        q                = stock_search.lower()
+        q = stock_search.lower()
         filtered_products = [
             p for p in filtered_products
-            if q in p.get("title", "").lower()
+            if q in p.get("title",    "").lower()
             or q in p.get("category", "").lower()
         ]
     if show_low:
@@ -420,7 +389,6 @@ with tab_stock:
     st.caption(f"{len(filtered_products)} book(s) shown")
     st.divider()
 
-    # Low stock alert
     low_stock = [p for p in products_stock if p.get("stock", 0) <= 5]
     if low_stock:
         st.warning(
@@ -429,7 +397,6 @@ with tab_stock:
             + ("..." if len(low_stock) > 4 else "")
         )
 
-    # Stock grid (4 per row)
     COLS = 4
     for row_start in range(0, len(filtered_products), COLS):
         row_p = filtered_products[row_start: row_start + COLS]
@@ -438,19 +405,14 @@ with tab_stock:
             pid   = p["id"]
             stock = p.get("stock", 0)
             with col:
-                # Stock color
                 if stock == 0:
-                    color = "#ef4444"
-                    icon  = "❌"
+                    color, icon = "#ef4444", "❌"
                 elif stock <= 5:
-                    color = "#f59e0b"
-                    icon  = "⚠️"
+                    color, icon = "#f59e0b", "⚠️"
                 elif stock <= 10:
-                    color = "#fbbf24"
-                    icon  = "🟡"
+                    color, icon = "#fbbf24", "🟡"
                 else:
-                    color = "#4caf50"
-                    icon  = "✅"
+                    color, icon = "#4caf50", "✅"
 
                 st.markdown(f"""
                 <div style="background:#1a1a2e; border:1px solid #0f3460;
@@ -494,7 +456,6 @@ with tab_danger:
 
     st.markdown('<div class="danger-box">', unsafe_allow_html=True)
 
-    # ── Clear all orders ──────────────────────────────────────────────────────
     st.markdown("#### 🗑️ Clear All Orders")
     st.caption(
         "Deletes all orders, order items and returns. "
@@ -520,7 +481,6 @@ with tab_danger:
 
     st.markdown("---")
 
-    # ── Full DB reset ─────────────────────────────────────────────────────────
     st.markdown("#### 💣 Full Database Reset")
     st.caption(
         "Drops and recreates ALL tables. Re-seeds 103 books + default users. "

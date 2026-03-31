@@ -1,13 +1,16 @@
-import sqlite3
 import json
 import os
+import sys
 import bcrypt
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "products.db")
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, ROOT)
+
+from db.connection import get_connection          # ← psycopg2 connection
 
 books = [
 
-    # ── 1. MACHINE LEARNING (8 books) ─────────────────────────────────────────
+    # ── 1. MACHINE LEARNING (8 books) ────────────────────────────────────────
     {
         "title": "Hands-On Machine Learning with Scikit-Learn, Keras & TensorFlow",
         "author": "Aurélien Géron", "price": 899.0, "rating": 4.9,
@@ -487,7 +490,7 @@ books = [
         "reviews": ["Best introductory PostgreSQL book.", "Gets you productive quickly.", "Good coverage of extensions.", "Great reference for PostgreSQL users."]
     },
 
-    # ── 10. OPERATING SYSTEMS (6 books) ──────────────────────────────────────
+    # ── 10. OPERATING SYSTEMS (6 books) ───────────────────────────────────────
     {
         "title": "Operating System Concepts (Dinosaur Book)",
         "author": "Abraham Silberschatz", "price": 1199.0, "rating": 4.7,
@@ -531,7 +534,7 @@ books = [
         "reviews": ["Best practical Linux internals book.", "Ward explains without jargon.", "Perfect for developers new to Linux.", "Makes Linux much less mysterious."]
     },
 
-    # ── 11. COMPUTER NETWORKS (6 books) ──────────────────────────────────────
+    # ── 11. COMPUTER NETWORKS (6 books) ───────────────────────────────────────
     {
         "title": "Computer Networking: A Top-Down Approach",
         "author": "James Kurose", "price": 1099.0, "rating": 4.7,
@@ -768,33 +771,33 @@ def hash_password(password: str) -> str:
 
 
 def create_database():
-    conn   = sqlite3.connect(DB_PATH)
+    conn   = get_connection()                    # ← FIXED: psycopg2
     cursor = conn.cursor()
 
-    # ── Drop all tables ───────────────────────────────────────────────────────
+    # ── Drop all tables (CASCADE required in PostgreSQL) ─────────────────────
     for table in ["returns", "order_items", "orders",
-                  "stock", "users", "products", "conversation_memory"]:
-        cursor.execute(f"DROP TABLE IF EXISTS {table}")
+                  "stock", "conversation_memory", "users", "products"]:
+        cursor.execute(f"DROP TABLE IF EXISTS {table} CASCADE")   # ← FIXED
 
     # ── Users ─────────────────────────────────────────────────────────────────
     cursor.execute("""
         CREATE TABLE users (
-            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            id            SERIAL PRIMARY KEY,                     -- ← FIXED
             username      TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
             role          TEXT NOT NULL DEFAULT 'user',
-            created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            created_at    TIMESTAMP DEFAULT NOW()                 -- ← FIXED
         )
     """)
 
     # ── Products ──────────────────────────────────────────────────────────────
     cursor.execute("""
         CREATE TABLE products (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            id          SERIAL PRIMARY KEY,                       -- ← FIXED
             title       TEXT NOT NULL,
             author      TEXT NOT NULL,
-            price       REAL NOT NULL,
-            rating      REAL NOT NULL,
+            price       FLOAT NOT NULL,                          -- ← FIXED
+            rating      FLOAT NOT NULL,                          -- ← FIXED
             category    TEXT NOT NULL,
             description TEXT NOT NULL,
             reviews     TEXT NOT NULL
@@ -804,66 +807,60 @@ def create_database():
     # ── Stock ─────────────────────────────────────────────────────────────────
     cursor.execute("""
         CREATE TABLE stock (
-            product_id INTEGER PRIMARY KEY,
-            quantity   INTEGER NOT NULL DEFAULT 0,
-            FOREIGN KEY (product_id) REFERENCES products(id)
+            product_id INTEGER PRIMARY KEY REFERENCES products(id),   -- ← FIXED
+            quantity   INTEGER NOT NULL DEFAULT 0
         )
     """)
 
     # ── Orders ────────────────────────────────────────────────────────────────
     cursor.execute("""
         CREATE TABLE orders (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            id         SERIAL PRIMARY KEY,                        -- ← FIXED
             order_id   TEXT UNIQUE NOT NULL,
-            user_id    INTEGER NOT NULL,
+            user_id    INTEGER NOT NULL REFERENCES users(id),     -- ← FIXED
             status     TEXT NOT NULL DEFAULT 'confirmed',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(id)
+            created_at TIMESTAMP DEFAULT NOW()                    -- ← FIXED
         )
     """)
 
     # ── Order Items ───────────────────────────────────────────────────────────
     cursor.execute("""
         CREATE TABLE order_items (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            order_id   TEXT UNIQUE NOT NULL,
-            product_id INTEGER NOT NULL,
+            id         SERIAL PRIMARY KEY,                        -- ← FIXED
+            order_id   TEXT NOT NULL REFERENCES orders(order_id), -- ← FIXED
+            product_id INTEGER NOT NULL REFERENCES products(id),  -- ← FIXED
             quantity   INTEGER NOT NULL DEFAULT 1,
-            price      REAL NOT NULL,
-            FOREIGN KEY (order_id)   REFERENCES orders(order_id),
-            FOREIGN KEY (product_id) REFERENCES products(id)
+            price      FLOAT NOT NULL                            -- ← FIXED
         )
     """)
 
     # ── Returns ───────────────────────────────────────────────────────────────
     cursor.execute("""
         CREATE TABLE returns (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            id         SERIAL PRIMARY KEY,                        -- ← FIXED
             return_id  TEXT UNIQUE NOT NULL,
-            order_id   TEXT NOT NULL,
-            user_id    INTEGER NOT NULL,
+            order_id   TEXT NOT NULL REFERENCES orders(order_id), -- ← FIXED
+            user_id    INTEGER NOT NULL REFERENCES users(id),     -- ← FIXED
             reason     TEXT,
             status     TEXT NOT NULL DEFAULT 'initiated',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (order_id) REFERENCES orders(order_id),
-            FOREIGN KEY (user_id)  REFERENCES users(id)
+            created_at TIMESTAMP DEFAULT NOW()                    -- ← FIXED
         )
     """)
 
     # ── Conversation Memory ───────────────────────────────────────────────────
     cursor.execute("""
         CREATE TABLE conversation_memory (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            id         SERIAL PRIMARY KEY,                        -- ← FIXED
             session_id TEXT NOT NULL,
             user_id    INTEGER,
             role       TEXT NOT NULL,
             content    TEXT NOT NULL,
             intent     TEXT,
             category   TEXT,
-            budget     REAL,
+            budget     FLOAT,                                    -- ← FIXED
             product_id INTEGER,
             order_id   TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP DEFAULT NOW()                    -- ← FIXED
         )
     """)
 
@@ -874,29 +871,32 @@ def create_database():
         ("user2", hash_password("user123"),  "user"),
         ("user3", hash_password("user123"),  "user"),
     ]
-    cursor.executemany(
-        "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-        default_users
-    )
+    for username, pw_hash, role in default_users:
+        cursor.execute(
+            "INSERT INTO users (username, password_hash, role) VALUES (%s, %s, %s)",  # ← FIXED
+            (username, pw_hash, role)
+        )
 
     # ── Seed products + stock ─────────────────────────────────────────────────
     for book in books:
         cursor.execute("""
             INSERT INTO products
             (title, author, price, rating, category, description, reviews)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (                                                     # ← FIXED: %s + RETURNING
             book["title"], book["author"], book["price"],
             book["rating"], book["category"],
             book["description"], json.dumps(book["reviews"])
         ))
-        pid = cursor.lastrowid
+        pid = cursor.fetchone()[0]                                 # ← FIXED: fetchone()[0]
         cursor.execute(
-            "INSERT INTO stock (product_id, quantity) VALUES (?, ?)",
+            "INSERT INTO stock (product_id, quantity) VALUES (%s, %s)",  # ← FIXED
             (pid, book["stock"])
         )
 
     conn.commit()
+    cursor.close()
     conn.close()
 
     # ── Print summary ─────────────────────────────────────────────────────────
@@ -904,7 +904,7 @@ def create_database():
     for b in books:
         cats[b["category"]] = cats.get(b["category"], 0) + 1
 
-    print(f"\n✅ Database created at: {DB_PATH}")
+    print(f"\n✅ PostgreSQL database seeded successfully!")
     print(f"✅ {len(books)} books seeded across {len(cats)} categories")
     print(f"✅ {len(default_users)} users seeded\n")
     print("📚 Books per category:")

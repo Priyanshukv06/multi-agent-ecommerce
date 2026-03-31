@@ -32,41 +32,42 @@ class ComparisonResult(TypedDict):
 
 
 class EcommerceState(TypedDict):
-    # ── Session ──────────────────────────────────────────────────────────────
-    session_id:   str                        # ← NEW: tracks conversation
+    # ── Session ───────────────────────────────────────────────────────────────
+    session_id:   str
+    user_id:      Optional[str]          # ← ADD THIS
 
-    # ── Input ────────────────────────────────────────────────────────────────
-    user_query:             str
-    conversation_history:   List[dict]
+    # ── Input ─────────────────────────────────────────────────────────────────
+    user_query:           str
+    conversation_history: List[dict]
 
-    # ── Planner ──────────────────────────────────────────────────────────────
+    # ── Planner ───────────────────────────────────────────────────────────────
     intent:   str
     plan:     List[str]
     budget:   Optional[float]
     category: Optional[str]
 
-    # ── Search ───────────────────────────────────────────────────────────────
+    # ── Search ────────────────────────────────────────────────────────────────
     product_list: List[ProductItem]
 
-    # ── Research ─────────────────────────────────────────────────────────────
+    # ── Research ──────────────────────────────────────────────────────────────
     research_data: Annotated[List[ResearchData], operator.add]
 
-    # ── Comparison ───────────────────────────────────────────────────────────
+    # ── Comparison ────────────────────────────────────────────────────────────
     comparison_result: Optional[ComparisonResult]
 
-    # ── Recommendation ───────────────────────────────────────────────────────
-    final_answer:            str
-    recommended_product_id:  Optional[int]
+    # ── Recommendation ────────────────────────────────────────────────────────
+    final_answer:           str
+    recommended_product_id: Optional[int]
 
-    # ── Critic ───────────────────────────────────────────────────────────────
+    # ── Critic ────────────────────────────────────────────────────────────────
     validation_score:    float
     validation_feedback: Optional[str]
     retry_count:         int
 
-    # ── Action ───────────────────────────────────────────────────────────────
+    # ── Action ────────────────────────────────────────────────────────────────
     order_status: Optional[str]
     order_id:     Optional[str]
 
-    # ── System ───────────────────────────────────────────────────────────────
+    # ── System ────────────────────────────────────────────────────────────────
     error:        Optional[str]
     current_node: str

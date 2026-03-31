@@ -4,32 +4,36 @@ import json
 import os
 import time
 import sys
+import hashlib
 
-# ── Path setup so auth imports work ──────────────────────────────────────────
+
+# ── Path setup ────────────────────────────────────────────────────────────────
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
+
+from config.settings import SECRET_KEY     # ← Phase 11.3 addition
 
 SESSIONS_FILE = os.path.join(ROOT, "data", "sessions.json")
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# SESSION INIT  (was already here — do not remove)
+# SESSION INIT
 # ════════════════════════════════════════════════════════════════════════════
 def init_session():
     """Initialize all session state variables with safe defaults."""
     defaults = {
-        "session_id":      str(uuid.uuid4()),
-        "messages":        [],
-        "cart":            [],
-        "cart_quantities": {},
-        "last_order_id":   None,
-        "last_product":    None,
-        "ranked":          [],
-        "ai_prefill":      None,
-        "buy_now_product": None,
-        "order_success":   None,
-        "checkout_results":None,
+        "session_id":        str(uuid.uuid4()),
+        "messages":          [],
+        "cart":              [],
+        "cart_quantities":   {},
+        "last_order_id":     None,
+        "last_product":      None,
+        "ranked":            [],
+        "ai_prefill":        None,
+        "buy_now_product":   None,
+        "order_success":     None,
+        "checkout_results":  None,
         "detail_product_id": None,
     }
     for key, val in defaults.items():
@@ -38,7 +42,16 @@ def init_session():
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# SAVED SESSIONS  (was already here — do not remove)
+# SECURE SESSION ID  ← Phase 11.3 addition
+# ════════════════════════════════════════════════════════════════════════════
+def generate_session_id(username: str) -> str:
+    """Generate a consistent, secure session ID tied to username + SECRET_KEY."""
+    raw = f"{username}:{SECRET_KEY}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:32]
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# SAVED SESSIONS
 # ════════════════════════════════════════════════════════════════════════════
 def load_sessions() -> dict:
     if not os.path.exists(SESSIONS_FILE):
@@ -70,7 +83,7 @@ def delete_saved_session(session_id: str):
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# CART HELPERS  (was already here — do not remove)
+# CART HELPERS
 # ════════════════════════════════════════════════════════════════════════════
 def add_to_cart(product: dict):
     cart = st.session_state.get("cart", [])
@@ -78,9 +91,8 @@ def add_to_cart(product: dict):
     if not any(p.get("id") == pid for p in cart):
         cart.append(product)
         st.session_state["cart"] = cart
-        # Default quantity = 1
-        qtys = st.session_state.get("cart_quantities", {})
-        qtys[pid] = 1
+        qtys        = st.session_state.get("cart_quantities", {})
+        qtys[pid]   = 1
         st.session_state["cart_quantities"] = qtys
 
 
@@ -115,8 +127,14 @@ def cart_total() -> float:
     )
 
 
+def cart_count() -> int:                   # ← Phase 11.3 addition
+    """Total number of items in cart (respects quantities)."""
+    qtys = st.session_state.get("cart_quantities", {})
+    return sum(qtys.values()) if qtys else len(st.session_state.get("cart", []))
+
+
 # ════════════════════════════════════════════════════════════════════════════
-# AUTH — NEW FUNCTIONS ADDED IN STEP 10.2
+# AUTH
 # ════════════════════════════════════════════════════════════════════════════
 def require_login():
     """
@@ -158,7 +176,7 @@ def render_sidebar_user():
         st.divider()
         role_badge = "👑 Admin" if user.get("role") == "admin" else "👤 User"
         st.markdown(f"**{role_badge}**")
-        st.caption(f"Logged in as: `{user.get('username','')}`")
+        st.caption(f"Logged in as: `{user.get('username', '')}`")
         if st.button("🚪 Logout", use_container_width=True, key="logout_btn"):
             logout()
 
@@ -186,9 +204,7 @@ def show_login_register():
     st.markdown('<div class="auth-title">📚 AI Book Store</div>',
                 unsafe_allow_html=True)
     st.markdown(
-        '<div class="auth-sub">'
-        'Multi-Agent AI powered recommendations'
-        '</div>',
+        '<div class="auth-sub">Multi-Agent AI powered recommendations</div>',
         unsafe_allow_html=True
     )
 
@@ -213,6 +229,10 @@ def show_login_register():
                             "username": db_user["username"],
                             "role":     db_user["role"]
                         }
+                        # ── Phase 11.3: use secure session ID per user ────────
+                        st.session_state["session_id"] = generate_session_id(
+                            db_user["username"]
+                        )
                         st.success(f"Welcome back, {db_user['username']}! 🎉")
                         st.rerun()
                     else:
@@ -249,6 +269,10 @@ def show_login_register():
                                            role="user")
                     if new_user:
                         st.session_state["user"] = new_user
+                        # ── Phase 11.3: secure session ID on register ─────────
+                        st.session_state["session_id"] = generate_session_id(
+                            new_user["username"]
+                        )
                         st.success(
                             f"Account created! Welcome, {new_user['username']}! 🎉"
                         )

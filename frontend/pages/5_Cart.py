@@ -17,14 +17,14 @@ from utils.session import (require_login, render_sidebar_user,
                            init_session, cart_total,
                            remove_from_cart, clear_cart)
 from utils.api     import place_order, get_product
+from utils.error   import show_api_error, show_connection_banner    # ← ADDED
 from auth.auth     import get_stock
 
 user = require_login()
 render_sidebar_user()
 init_session()
+show_connection_banner()                                             # ← ADDED
 
-
-# ── Styles ────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
     .stApp { background-color: #0f1117; }
@@ -38,50 +38,39 @@ st.markdown("""
     }
     .item-title  { font-size: 16px; font-weight: 700; color: #e94560; }
     .item-author { font-size: 13px; color: #808090; margin: 4px 0; }
-    .item-price  {
-        font-size: 18px; font-weight: 800; color: #e94560;
-        margin-top: 6px;
-    }
+    .item-price  { font-size: 18px; font-weight: 800; color: #e94560; margin-top: 6px; }
     .summary-box {
         background: #1a1a2e; border: 1px solid #0f3460;
         border-radius: 14px; padding: 20px;
         position: sticky; top: 20px;
     }
     .summary-title { font-size: 20px; font-weight: 700; color: #e0e0e0; }
-    .summary-total {
-        font-size: 28px; font-weight: 800; color: #e94560; margin: 12px 0;
-    }
-    .empty-state { text-align: center; padding: 60px 20px; color: #404060; }
-    .stock-warn  { color: #f59e0b; font-size: 12px; }
-    .stock-ok    { color: #4caf50; font-size: 12px; }
+    .summary-total { font-size: 28px; font-weight: 800; color: #e94560; margin: 12px 0; }
+    .empty-state   { text-align: center; padding: 60px 20px; color: #404060; }
+    .stock-warn    { color: #f59e0b; font-size: 12px; }
+    .stock-ok      { color: #4caf50; font-size: 12px; }
     .success-card {
         background: #1a3a1a; border: 1px solid #4caf50;
-        border-radius: 12px; padding: 16px; margin: 8px 0;
-        color: #4caf50;
+        border-radius: 12px; padding: 16px; margin: 8px 0; color: #4caf50;
     }
 </style>
 """, unsafe_allow_html=True)
 
 
-# ── Quantity helpers in session ───────────────────────────────────────────────
+# ── Quantity helpers ──────────────────────────────────────────────────────────
 def get_cart_quantities() -> dict:
-    """Returns {product_id: quantity} from session state."""
     return st.session_state.get("cart_quantities", {})
-
 
 def set_quantity(product_id: int, qty: int):
     if "cart_quantities" not in st.session_state:
         st.session_state["cart_quantities"] = {}
     st.session_state["cart_quantities"][product_id] = qty
 
-
 def remove_quantity(product_id: int):
     qs = st.session_state.get("cart_quantities", {})
     qs.pop(product_id, None)
     st.session_state["cart_quantities"] = qs
 
-
-# ── Cart computed total with quantities ───────────────────────────────────────
 def cart_total_with_qty() -> float:
     cart = st.session_state.get("cart", [])
     qtys = get_cart_quantities()
@@ -91,9 +80,7 @@ def cart_total_with_qty() -> float:
     )
 
 
-# ════════════════════════════════════════════════════════════════════════════
-# SIDEBAR
-# ════════════════════════════════════════════════════════════════════════════
+# ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("### 🛒 Cart")
     st.divider()
@@ -104,19 +91,17 @@ with st.sidebar:
         st.metric("Estimated Total", f"₹{cart_total_with_qty():,.0f}")
 
     st.divider()
-    if st.button("🛍️ Browse More Books",  use_container_width=True):
+    if st.button("🛍️ Browse More Books", use_container_width=True):
         st.switch_page("pages/1_Browse.py")
-    if st.button("🤖 AI Assistant",       use_container_width=True):
-        st.switch_page("pages/2_AIAssistant.py")
-    if st.button("📦 My Orders",          use_container_width=True):
+    if st.button("🤖 AI Assistant",      use_container_width=True):
+        st.switch_page("pages/2_AI_Assistant.py")    # ← FIXED
+    if st.button("📦 My Orders",         use_container_width=True):
         st.switch_page("pages/3_Orders.py")
-    if st.button("🏠 Home",               use_container_width=True):
+    if st.button("🏠 Home",              use_container_width=True):
         st.switch_page("app.py")
 
 
-# ════════════════════════════════════════════════════════════════════════════
-# CHECKOUT SUCCESS STATE
-# ════════════════════════════════════════════════════════════════════════════
+# ── Checkout Success State ────────────────────────────────────────────────────
 if st.session_state.get("checkout_results"):
     results = st.session_state.checkout_results
 
@@ -166,9 +151,7 @@ if st.session_state.get("checkout_results"):
     st.stop()
 
 
-# ════════════════════════════════════════════════════════════════════════════
-# MAIN CART VIEW
-# ════════════════════════════════════════════════════════════════════════════
+# ── Main Cart View ────────────────────────────────────────────────────────────
 st.markdown('<div class="page-title">🛒 Your Cart</div>', unsafe_allow_html=True)
 
 cart = st.session_state.get("cart", [])
@@ -177,20 +160,14 @@ if not cart:
     st.markdown("""
     <div class="empty-state">
         <div style="font-size:56px;">🛒</div>
-        <div style="font-size:22px; margin:12px 0; color:#e0e0e0;">
-            Your cart is empty
-        </div>
-        <div style="font-size:14px;">
-            Browse books and add them to your cart!
-        </div>
+        <div style="font-size:22px; margin:12px 0; color:#e0e0e0;">Your cart is empty</div>
+        <div style="font-size:14px;">Browse books and add them to your cart!</div>
     </div>
     """, unsafe_allow_html=True)
     if st.button("🛍️ Browse Books", type="primary"):
         st.switch_page("pages/1_Browse.py")
     st.stop()
 
-
-# Two-column layout: items left, summary right
 col_items, col_summary = st.columns([3, 1])
 
 with col_items:
@@ -198,16 +175,15 @@ with col_items:
     st.markdown("")
 
     for product in cart:
-        pid    = product.get("id")
-        stock  = get_stock(pid)
-        qtys   = get_cart_quantities()
-        qty    = qtys.get(pid, 1)
+        pid   = product.get("id")
+        stock = get_stock(pid)
+        qtys  = get_cart_quantities()
+        qty   = qtys.get(pid, 1)
 
         with st.container():
             st.markdown('<div class="cart-item">', unsafe_allow_html=True)
 
             row1, row_remove = st.columns([5, 1])
-
             with row1:
                 st.markdown(
                     f'<div class="item-title">{product.get("title","")}</div>'
@@ -222,7 +198,6 @@ with col_items:
                     remove_quantity(pid)
                     st.rerun()
 
-            # Price + Quantity row
             price_col, qty_col, subtotal_col = st.columns([2, 2, 2])
 
             with price_col:
@@ -247,7 +222,6 @@ with col_items:
                     set_quantity(pid, new_qty)
                     st.rerun()
 
-                # Stock indicator
                 if stock == 0:
                     st.markdown(
                         '<div class="stock-warn">⚠️ Out of stock</div>',
@@ -276,7 +250,6 @@ with col_items:
             st.markdown('</div>', unsafe_allow_html=True)
             st.markdown("")
 
-    # Clear cart button
     st.markdown("")
     if st.button("🗑️ Clear Entire Cart", use_container_width=True, type="secondary"):
         clear_cart()
@@ -294,10 +267,8 @@ with col_summary:
         <div class="summary-title">🧾 Order Summary</div>
     </div>
     """, unsafe_allow_html=True)
-
     st.markdown("")
 
-    # Per-item breakdown
     for product in cart:
         pid = product.get("id")
         qty = qtys.get(pid, 1)
@@ -310,8 +281,6 @@ with col_summary:
         )
 
     st.divider()
-
-    # Total
     st.markdown(
         f'<div style="display:flex; justify-content:space-between; '
         f'font-size:18px; font-weight:800; color:#e0e0e0;">'
@@ -319,10 +288,8 @@ with col_summary:
         f'<span style="color:#e94560;">₹{total:,.0f}</span></div>',
         unsafe_allow_html=True
     )
-
     st.markdown("")
 
-    # Stock validation before checkout
     out_of_stock = []
     for product in cart:
         pid   = product.get("id")
@@ -340,29 +307,34 @@ with col_summary:
                   type="primary", disabled=True)
     else:
         if st.button("🛒 Place Order", use_container_width=True, type="primary"):
-            results = []
+            results  = []
             progress = st.progress(0)
 
             for i, product in enumerate(cart):
                 pid = product.get("id")
                 qty = qtys.get(pid, 1)
-                with st.spinner(f"Ordering {product.get('title','')[:30]}..."):
-                    result = place_order(
-                        pid,
-                        st.session_state.get("session_id", "default"),
-                        user_id=user["id"],
-                        quantity=qty
-                    )
-                results.append((product, result))
+                last_result = {"error": "Not placed"}
+
+                # ── FIXED: loop qty times since place_order has no quantity param
+                for _ in range(qty):
+                    with st.spinner(f"Ordering {product.get('title','')[:30]}..."):
+                        last_result = place_order(
+                            pid,
+                            st.session_state.get("session_id", "default"),
+                            user_id=user["id"]
+                        )
+                    # ── ADDED: error check per order ──────────────────────────
+                    if show_api_error(last_result, f"ordering {product.get('title','')[:20]}"):
+                        break
+
+                results.append((product, last_result))
                 progress.progress((i + 1) / len(cart))
 
-            # Store results + clear cart
             st.session_state["checkout_results"] = results
             clear_cart()
             st.session_state["cart_quantities"] = {}
             st.rerun()
 
     st.markdown("")
-
     if st.button("🤖 Need help choosing?", use_container_width=True):
-        st.switch_page("pages/2_AIAssistant.py")
+        st.switch_page("pages/2_AI_Assistant.py")    # ← FIXED

@@ -24,6 +24,7 @@ def extract_return_reason(text: str) -> str:
 
 def handle_order(state: EcommerceState) -> dict:
     product_id = state.get("recommended_product_id")
+    user_id    = state.get("user_id", "default_user")
 
     if not product_id:
         return {
@@ -36,9 +37,9 @@ def handle_order(state: EcommerceState) -> dict:
         }
 
     product  = get_product_by_id(product_id)
-    order_id = place_order(product_id=product_id, user_id="default_user")
+    order_id = place_order(product_id=product_id, user_id=user_id)
 
-    print(f"  ✅ Order placed: {order_id} → '{product['title']}'")
+    print(f"  ✅ Order placed: {order_id} → '{product.title}'")
 
     return {
         "order_status": "confirmed",
@@ -46,10 +47,10 @@ def handle_order(state: EcommerceState) -> dict:
         "final_answer": (
             f"✅ **Order Placed Successfully!**\n\n"
             f"📦 **Order ID:** `{order_id}`\n"
-            f"📚 **Book:** {product['title']}\n"
-            f"✍️  **Author:** {product['author']}\n"
-            f"💰 **Price:** ₹{product['price']}\n"
-            f"⭐ **Rating:** {product['rating']}/5\n\n"
+            f"📚 **Book:** {product.title}\n"
+            f"✍️  **Author:** {product.author}\n"
+            f"💰 **Price:** ₹{product.price}\n"
+            f"⭐ **Rating:** {product.rating}/5\n\n"
             f"🚚 **Estimated Delivery:** 3–5 business days\n\n"
             f"You can track your order anytime by asking:\n"
             f"> *'Track order {order_id}'*"
@@ -60,11 +61,11 @@ def handle_order(state: EcommerceState) -> dict:
 
 def handle_track(state: EcommerceState) -> dict:
     query    = state["user_query"]
+    user_id  = state.get("user_id", "default_user")
     order_id = extract_order_id(query)
 
-    # No order ID — show all orders
     if not order_id:
-        orders = get_user_orders("default_user")
+        orders = get_user_orders(user_id)
         if not orders:
             return {
                 "order_status": "no_orders",
@@ -87,7 +88,6 @@ def handle_track(state: EcommerceState) -> dict:
             "current_node": "action"
         }
 
-    # Track specific order
     order = get_order(order_id)
     if not order:
         return {
@@ -122,11 +122,12 @@ def handle_track(state: EcommerceState) -> dict:
 
 def handle_return(state: EcommerceState) -> dict:
     query    = state["user_query"]
+    user_id  = state.get("user_id", "default_user")
     order_id = extract_order_id(query)
     reason   = extract_return_reason(query)
 
     if not order_id:
-        orders = get_user_orders("default_user")
+        orders = get_user_orders(user_id)
         if orders:
             latest   = orders[0]
             order_id = latest["order_id"]
@@ -141,7 +142,7 @@ def handle_return(state: EcommerceState) -> dict:
                 "current_node": "action"
             }
 
-    result = initiate_return(order_id, reason, "default_user")
+    result = initiate_return(order_id, reason, user_id)
 
     if result is None:
         return {

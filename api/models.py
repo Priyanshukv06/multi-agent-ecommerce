@@ -2,25 +2,29 @@ from pydantic import BaseModel, Field
 from typing import Optional, List
 
 
-# ── Request Models ──────────────────────────────────────────────────────────
+# ── Request Models ────────────────────────────────────────────────────────────
 
 class ChatRequest(BaseModel):
     query:      str = Field(..., min_length=1, max_length=500)
     session_id: str = Field(..., min_length=1, max_length=100)
+    user_id:    Optional[int] = None                            # ← ADDED
 
     model_config = {"json_schema_extra": {"example": {
         "query":      "I want a ML book under ₹1000",
-        "session_id": "user-123"
+        "session_id": "user-123",
+        "user_id":    1
     }}}
 
 
 class OrderRequest(BaseModel):
     product_id: int = Field(..., gt=0)
     session_id: str
+    user_id:    Optional[int] = None                            # ← ADDED
 
     model_config = {"json_schema_extra": {"example": {
         "product_id": 1,
-        "session_id": "user-123"
+        "session_id": "user-123",
+        "user_id":    1
     }}}
 
 
@@ -46,7 +50,7 @@ class ReturnRequest(BaseModel):
     }}}
 
 
-# ── Response Models ─────────────────────────────────────────────────────────
+# ── Response Models ───────────────────────────────────────────────────────────
 
 class ProductResponse(BaseModel):
     id:          int
@@ -71,21 +75,21 @@ class RankedProduct(BaseModel):
 
 
 class ChatResponse(BaseModel):
-    session_id:            str
-    intent:                str
-    answer:                str
-    recommended_product:   Optional[ProductResponse] = None
-    ranked_products:       Optional[List[RankedProduct]] = None
-    order_id:              Optional[str] = None
-    order_status:          Optional[str] = None
-    validation_score:      Optional[float] = None
+    session_id:          str
+    intent:              str
+    answer:              str
+    recommended_product: Optional[ProductResponse]    = None
+    ranked_products:     Optional[List[RankedProduct]] = None
+    order_id:            Optional[str]                = None
+    order_status:        Optional[str]                = None
+    validation_score:    Optional[float]              = None
 
 
 class OrderResponse(BaseModel):
-    order_id:     str
-    product_id:   int
-    status:       str
-    message:      str
+    order_id:   str
+    product_id: int
+    status:     str
+    message:    str
 
 
 class TrackResponse(BaseModel):
@@ -108,11 +112,11 @@ class ReturnResponse(BaseModel):
 class HistoryItem(BaseModel):
     role:       str
     content:    str
-    intent:     Optional[str]  = None
-    category:   Optional[str]  = None
-    created_at: Optional[str]  = None
+    intent:     Optional[str] = None
+    category:   Optional[str] = None
+    created_at: Optional[str] = None
 
 
 class ErrorResponse(BaseModel):
-    error:   str
-    detail:  Optional[str] = None
+    error:  str
+    detail: Optional[str] = None
