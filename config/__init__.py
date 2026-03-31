@@ -5,7 +5,6 @@ from config.settings import (
     APP_ENV,
     API_BASE_URL,
     DEBUG,
-    DB_PATH,
     print_config_summary,
 )
 
