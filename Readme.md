@@ -61,8 +61,8 @@ flowchart TD
 
 ## 🗂️ Project Structure
 
----
 
+```
 multi-agent-ecommerce/
 │
 ├── api/ # FastAPI application
@@ -124,7 +124,7 @@ multi-agent-ecommerce/
 ├── requirements.txt # Production dependencies
 ├── .env.example # Template — copy to .env
 └── .gitignore
-
+```
 ---
 
 ## 🤖 The 7-Agent Pipeline in Action
