@@ -7,6 +7,7 @@ def save_turn(
     session_id:         str,
     user_query:         str,
     assistant_response: str,
+    user_id:     Optional[int]   = None,  # ← ADD: user isolation
     intent:      Optional[str]   = None,
     category:    Optional[str]   = None,
     budget:      Optional[float] = None,
@@ -19,24 +20,37 @@ def save_turn(
     for role, content in [("user", user_query), ("assistant", assistant_response)]:
         cursor.execute("""
             INSERT INTO conversation_memory
-            (session_id, role, content, intent, category, budget, product_id, order_id)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        """, (session_id, role, content, intent, category, budget, product_id, order_id))
+            (session_id, user_id, role, content, intent, category, budget, product_id, order_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (session_id, user_id, role, content, intent, category, budget, product_id, order_id))  # ← ADD: user_id
 
     conn.commit()
     conn.close()
 
 
-def get_history(session_id: str, limit: int = 6) -> List[dict]:
+def get_history(session_id: str, user_id: Optional[int] = None, limit: int = 6) -> List[dict]:  # ← ADD: user_id validation
+    """Get conversation history. If user_id provided, validates ownership."""
     conn   = get_connection()
     cursor = get_cursor(conn)                                  # ← FIXED
-    cursor.execute("""
-        SELECT role, content, intent, category, budget, product_id, order_id, created_at
-        FROM conversation_memory
-        WHERE session_id = %s
-        ORDER BY id DESC
-        LIMIT %s
-    """, (session_id, limit))
+    
+    # Query with optional user_id filter for security
+    if user_id is not None:
+        cursor.execute("""
+            SELECT role, content, intent, category, budget, product_id, order_id, created_at
+            FROM conversation_memory
+            WHERE session_id = %s AND user_id = %s
+            ORDER BY id DESC
+            LIMIT %s
+        """, (session_id, user_id, limit))
+    else:
+        cursor.execute("""
+            SELECT role, content, intent, category, budget, product_id, order_id, created_at
+            FROM conversation_memory
+            WHERE session_id = %s
+            ORDER BY id DESC
+            LIMIT %s
+        """, (session_id, limit))
+    
     rows = cursor.fetchall()
     conn.close()
 

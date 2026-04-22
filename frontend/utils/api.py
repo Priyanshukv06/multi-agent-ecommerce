@@ -182,8 +182,11 @@ def initiate_return(
 
 # ── Memory / History ──────────────────────────────────────────────────────────
 
-def get_history(session_id: str, limit: int = 50) -> list:
-    result = _get(f"/history/{session_id}", params={"limit": limit})
+def get_history(session_id: str, user_id: int = None, limit: int = 50) -> list:  # ← ADD: user_id parameter
+    params = {"limit": limit}
+    if user_id is not None:
+        params["user_id"] = user_id  # ← PASS: user_id to backend for validation
+    result = _get(f"/history/{session_id}", params=params)
     if isinstance(result, list):
         return result
     return []

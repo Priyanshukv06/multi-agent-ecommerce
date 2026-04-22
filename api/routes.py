@@ -63,6 +63,7 @@ async def chat(request: ChatRequest):
 
     save_turn(
         session_id=         session_id,
+        user_id=            request.user_id,  # ← ADD: user isolation
         user_query=         request.query,
         assistant_response= final_state["final_answer"],
         intent=             final_state.get("intent"),
@@ -154,6 +155,7 @@ async def chat_stream(request: ChatRequest):
 
             save_turn(
                 session_id=         session_id,
+                user_id=            request.user_id,  # ← ADD: user isolation
                 user_query=         request.query,
                 assistant_response= answer,
                 intent=             final_state.get("intent"),
@@ -250,6 +252,7 @@ async def place_order_endpoint(request: OrderRequest):
 
     save_turn(
         session_id=         request.session_id,
+        user_id=            request.user_id,  # ← ADD: user isolation
         user_query=         f"Ordered product {request.product_id}",
         assistant_response= f"Order {order_id} placed",
         intent=             "order",
@@ -321,8 +324,8 @@ async def return_order(request: ReturnRequest):
 
 @router.get("/history/{session_id}",
             response_model=List[HistoryItem], tags=["Memory"])
-async def get_session_history(session_id: str, limit: int = 10):
-    history = get_history(session_id, limit=limit)
+async def get_session_history(session_id: str, user_id: int = None, limit: int = 10):  # ← ADD: user_id validation
+    history = get_history(session_id, user_id=user_id, limit=limit)  # ← PASS: user_id for validation
     return [
         HistoryItem(
             role=       h["role"],

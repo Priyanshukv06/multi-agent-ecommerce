@@ -51,23 +51,34 @@ def generate_session_id(username: str) -> str:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# SAVED SESSIONS
+# SAVED SESSIONS (with user isolation)
 # ════════════════════════════════════════════════════════════════════════════
-def load_sessions() -> dict:
+def load_sessions(user_id: int = None) -> dict:
+    """Load sessions. If user_id provided, filter to that user only."""
     if not os.path.exists(SESSIONS_FILE):
         return {}
     try:
         with open(SESSIONS_FILE, "r") as f:
-            return json.load(f)
+            all_sessions = json.load(f)
+        
+        # Filter by user_id if provided
+        if user_id is not None:
+            return {
+                sid: meta for sid, meta in all_sessions.items()
+                if meta.get("user_id") == user_id
+            }
+        return all_sessions
     except Exception:
         return {}
 
 
-def save_session(session_id: str, label: str):
-    sessions = load_sessions()
+def save_session(session_id: str, label: str, user_id: int):
+    """Save a session with user isolation."""
+    sessions = load_sessions()  # Load all sessions
     if session_id not in sessions:
         os.makedirs(os.path.dirname(SESSIONS_FILE), exist_ok=True)
         sessions[session_id] = {
+            "user_id":    user_id,  # ← ADD: user isolation
             "label":      label[:40],
             "created_at": time.strftime("%d %b %Y %H:%M")
         }
@@ -76,7 +87,7 @@ def save_session(session_id: str, label: str):
 
 
 def delete_saved_session(session_id: str):
-    sessions = load_sessions()
+    sessions = load_sessions()  # Load all sessions
     sessions.pop(session_id, None)
     with open(SESSIONS_FILE, "w") as f:
         json.dump(sessions, f, indent=2)

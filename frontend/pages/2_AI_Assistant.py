@@ -138,9 +138,9 @@ def handle_query(query: str):
         "data":    meta,
     })
 
-    saved = load_sessions()
+    saved = load_sessions(user_id=user["id"])  # ← FIXED: pass user_id for isolation
     if st.session_state.session_id not in saved:
-        save_session(st.session_state.session_id, label=query[:40])
+        save_session(st.session_state.session_id, label=query[:40], user_id=user["id"])  # ← FIXED: pass user_id
 
 
 def render_rec_card(product: dict):
@@ -229,6 +229,7 @@ def render_comparison(ranked: list):
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("### 🤖 AI Assistant")
+    st.caption(f"User: `{user['username']}`")
     st.caption(f"Session: `{st.session_state.session_id[:14]}...`")
     st.divider()
 
@@ -253,7 +254,7 @@ with st.sidebar:
                 (m["content"] for m in st.session_state.messages
                  if m["role"] == "user"), "Session"
             )
-            save_session(st.session_state.session_id, label=first[:40])
+            save_session(st.session_state.session_id, label=first[:40], user_id=user["id"])  # ← FIXED: pass user_id
         st.session_state.session_id    = str(uuid.uuid4())
         st.session_state.messages      = []
         st.session_state.last_product  = None
@@ -267,7 +268,7 @@ with st.sidebar:
         st.rerun()
 
     st.divider()
-    saved = load_sessions()
+    saved = load_sessions(user_id=user["id"])  # ← FIXED: pass user_id for isolation
 
     if saved:
         st.caption("📚 Saved sessions:")
@@ -282,7 +283,7 @@ with st.sidebar:
                 st.session_state.last_product  = None
                 st.session_state.last_order_id = None
                 st.session_state.ranked        = []
-                history = get_history(sid, limit=50)
+                history = get_history(sid, user_id=user[\"id\"], limit=50)  # ← FIXED: Pass user_id for security
                 st.session_state.messages = [
                     {"role": h["role"], "content": h["content"],
                      "intent": h.get("intent", ""), "elapsed": None, "data": {}}
