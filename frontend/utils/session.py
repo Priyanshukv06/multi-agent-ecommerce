@@ -54,7 +54,7 @@ def generate_session_id(username: str) -> str:
 # SAVED SESSIONS (with user isolation)
 # ════════════════════════════════════════════════════════════════════════════
 def load_sessions(user_id: int = None) -> dict:
-    """Load sessions. If user_id provided, filter to that user only."""
+    """Load sessions. If user_id provided, filter to that user only. Backward compatible with old sessions."""
     if not os.path.exists(SESSIONS_FILE):
         return {}
     try:
@@ -65,7 +65,7 @@ def load_sessions(user_id: int = None) -> dict:
         if user_id is not None:
             return {
                 sid: meta for sid, meta in all_sessions.items()
-                if meta.get("user_id") == user_id
+                if meta.get("user_id") == user_id or meta.get("user_id") is None  # ← FIXED: backward compat - include old sessions without user_id
             }
         return all_sessions
     except Exception:
