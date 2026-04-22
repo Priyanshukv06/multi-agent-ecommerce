@@ -197,7 +197,7 @@ def render_comparison(ranked: list):
     if not ranked:
         return
     st.markdown(f"**📊 {len(ranked)} Books Ranked & Scored**")
-    for p in ranked:
+    for idx, p in enumerate(ranked):  # ← ADD: index for unique key
         rank = p.get("rank", "")
         col_card, col_scores = st.columns([2, 3])
         with col_card:
@@ -208,7 +208,7 @@ def render_comparison(ranked: list):
                 <div class="rec-meta">Score: {p.get("total_score", 0)}/40</div>
             </div>
             """, unsafe_allow_html=True)
-            if st.button("📖 Details", key=f"cmp_detail_{p.get('product_id')}",
+            if st.button("📖 Details", key=f"cmp_detail_{idx}_{p.get('product_id')}",  # ← FIXED: add idx for uniqueness
                          use_container_width=True):
                 st.session_state.detail_product_id = p.get("product_id")
                 st.switch_page("pages/4_Book_Detail.py")
