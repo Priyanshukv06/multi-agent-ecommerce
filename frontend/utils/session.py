@@ -177,6 +177,12 @@ def render_sidebar_user():
         role_badge = "👑 Admin" if user.get("role") == "admin" else "👤 User"
         st.markdown(f"**{role_badge}**")
         st.caption(f"Logged in as: `{user.get('username', '')}`")
+        
+        # Show Admin link only for admin users
+        if user.get("role") == "admin":
+            if st.button("👑 Admin Dashboard", use_container_width=True, type="primary"):
+                st.switch_page("pages/6_Admin.py")
+        
         if st.button("🚪 Logout", use_container_width=True, key="logout_btn"):
             logout()
 
