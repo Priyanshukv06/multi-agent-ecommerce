@@ -36,10 +36,29 @@ if "user" not in st.session_state or not st.session_state["user"]:
     st.stop()
 # ─────────────────────────────────────────────────────────────────────────────
 
-render_sidebar_user()
+# ── CUSTOM PAGE NAVIGATION — Hide Admin page from non-admin users ───────────────
+from streamlit.navigation import Page
 
-from utils.session import init_session
-from utils.api     import get_products, get_categories
+user = st.session_state.get("user", {})
+is_admin = user.get("role") == "admin"
+
+# Define pages based on user role
+pages = [
+    Page("app.py", title="🏠 Home", icon="🏠"),
+    Page("pages/1_Browse.py", title="📚 Browse", icon="📚"),
+    Page("pages/2_AI_Assistant.py", title="🤖 AI Assistant", icon="🤖"),
+    Page("pages/3_Orders.py", title="📦 My Orders", icon="📦"),
+    Page("pages/4_Book_Detail.py", title="📖 Book Detail", icon="📖"),
+    Page("pages/5_Cart.py", title="🛒 Cart", icon="🛒"),
+]
+
+# Only show Admin page to admins
+if is_admin:
+    pages.append(Page("pages/6_Admin.py", title="👑 Admin", icon="👑"))
+
+pg = st.navigation(pages)
+pg.run()
+st.stop()  # Stop execution after page navigation
 
 
 st.markdown("""
