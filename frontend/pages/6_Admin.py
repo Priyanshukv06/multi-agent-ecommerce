@@ -14,8 +14,8 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-from utils.session  import require_admin, render_sidebar_user
-from tools.db_tool  import search_products                  # ← ADDED for stock manager
+from utils.session  import require_admin, render_sidebar_user, require_login
+from tools.db_tool  import search_products
 from auth.auth      import (
     get_all_users,
     get_all_orders_admin,
@@ -25,6 +25,7 @@ from auth.auth      import (
     update_stock,
 )
 
+# ── AUTH GATE: Admin only ─────────────────────────────────────────────────────
 user = require_admin()
 render_sidebar_user()
 
@@ -108,7 +109,7 @@ with st.sidebar:
 # ── Header ────────────────────────────────────────────────────────────────────
 st.markdown('<div class="page-title">👑 Admin Dashboard</div>',
             unsafe_allow_html=True)
-st.caption(f"Logged in as **{user['username']}** (Admin)")
+st.caption(f\"Logged in as **{user['username']}** (Admin - Full Control)\")
 st.divider()
 
 all_orders = get_all_orders_admin()

@@ -82,19 +82,14 @@ def cart_total_with_qty() -> float:
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("### 🛒 Cart")
+    st.markdown("### 🛒 Your Cart")
     st.divider()
 
     cart = st.session_state.get("cart", [])
-    st.metric("Items in Cart", len(cart))
-    if cart:
-        st.metric("Estimated Total", f"₹{cart_total_with_qty():,.0f}")
-
-    st.divider()
     if st.button("🛍️ Browse More Books", use_container_width=True):
         st.switch_page("pages/1_Browse.py")
     if st.button("🤖 AI Assistant",      use_container_width=True):
-        st.switch_page("pages/2_AI_Assistant.py")    # ← FIXED
+        st.switch_page("pages/2_AI_Assistant.py")
     if st.button("📦 My Orders",         use_container_width=True):
         st.switch_page("pages/3_Orders.py")
     if st.button("🏠 Home",              use_container_width=True):

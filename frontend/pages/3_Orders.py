@@ -187,10 +187,10 @@ if not filtered:
     <div class="empty-state">
         <div style="font-size:52px;">📭</div>
         <div style="font-size:20px; margin:12px 0;">No orders found</div>
-        <div style="font-size:14px;">Try changing the filter, or go browse some books!</div>
+        <div style="font-size:14px;">Browse and buy some books to see them here!</div>
     </div>
     """, unsafe_allow_html=True)
-    if st.button("🛍️ Browse Books", type="primary"):
+    if st.button("🛍️ Browse Books", type="primary", use_container_width=True):
         st.switch_page("pages/1_Browse.py")
     st.stop()
 

@@ -247,9 +247,6 @@ with st.sidebar:
             st.rerun()
 
     st.divider()
-    st.markdown("**⚙️ Sessions**")
-    st.caption(f"💬 {len(get_history(st.session_state.session_id))} messages")
-
     if st.button("➕ New Session", use_container_width=True):
         if st.session_state.messages:
             first = next(
@@ -270,41 +267,28 @@ with st.sidebar:
         st.rerun()
 
     st.divider()
-    st.markdown("**🕓 Past Sessions**")
     saved = load_sessions()
 
-    if not saved:
-        st.caption("No saved sessions yet.")
-    else:
-        for sid, meta in list(saved.items()):
+    if saved:
+        st.caption("📚 Saved sessions:")
+        for sid, meta in list(saved.items())[:3]:
             is_current = sid == st.session_state.session_id
             label      = meta.get("label", "Untitled")[:26]
-            created_at = meta.get("created_at", "")
 
-            col_btn, col_del = st.columns([4, 1])
-            with col_btn:
-                prefix = "✅ " if is_current else "💬 "
-                if st.button(f"{prefix}{label}...", key=f"sess_{sid}",
-                             use_container_width=True, disabled=is_current):
-                    st.session_state.session_id    = sid
-                    st.session_state.last_product  = None
-                    st.session_state.last_order_id = None
-                    st.session_state.ranked        = []
-                    history = get_history(sid, limit=50)
-                    st.session_state.messages = [
-                        {"role": h["role"], "content": h["content"],
-                         "intent": h.get("intent", ""), "elapsed": None, "data": {}}
-                        for h in history
-                    ]
-                    st.rerun()
-            with col_del:
-                if st.button("🗑", key=f"del_{sid}"):
-                    delete_saved_session(sid)
-                    if sid == st.session_state.session_id:
-                        clear_history(sid)
-                        st.session_state.messages = []
-                    st.rerun()
-            st.caption(f"🕐 {created_at}")
+            prefix = "✅ " if is_current else "💬 "
+            if st.button(f"{prefix}{label}...", key=f"sess_{sid}",
+                         use_container_width=True, disabled=is_current):
+                st.session_state.session_id    = sid
+                st.session_state.last_product  = None
+                st.session_state.last_order_id = None
+                st.session_state.ranked        = []
+                history = get_history(sid, limit=50)
+                st.session_state.messages = [
+                    {"role": h["role"], "content": h["content"],
+                     "intent": h.get("intent", ""), "elapsed": None, "data": {}}
+                    for h in history
+                ]
+                st.rerun()
 
     st.divider()
     if st.button("🛍️ Browse Books", use_container_width=True):

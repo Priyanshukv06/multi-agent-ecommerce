@@ -181,22 +181,6 @@ with st.sidebar:
 st.markdown('<div class="page-title">📚 Browse Books</div>', unsafe_allow_html=True)
 st.caption("Browse, filter, and buy instantly — no AI needed here.")
 
-if st.session_state.get("order_success"):
-    result = st.session_state["order_success"]
-    st.success(f"✅ Order placed! ID: **{result.get('order_id')}** — {result.get('message','')}")
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        if st.button("📦 Track This Order"):
-            st.switch_page("pages/3_Orders.py")
-    with c2:
-        if st.button("🛍️ Keep Shopping"):
-            st.session_state["order_success"] = None
-            st.rerun()
-    with c3:
-        if st.button("✕ Dismiss"):
-            st.session_state["order_success"] = None
-            st.rerun()
-
 search = st.text_input(
     "search", label_visibility="collapsed",
     placeholder="🔍 Search by title, author, or topic..."
