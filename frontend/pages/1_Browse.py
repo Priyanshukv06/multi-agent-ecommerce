@@ -9,8 +9,27 @@ from utils.api     import get_products, get_categories, get_price_range, place_o
 from utils.session import (
     init_session, add_to_cart, remove_from_cart,
     in_cart, clear_cart, cart_total,
-    require_login, render_sidebar_user          # ← ADDED
+    require_login, render_sidebar_user
 )
+
+# ──────────────────────────────────────────────────────────────────────────────
+# CACHING FUNCTIONS — Cache API responses for fast filtering
+# ──────────────────────────────────────────────────────────────────────────────
+
+@st.cache_data(ttl=300)  # Cache for 5 minutes
+def cached_get_categories():
+    """Cache category list for 5 minutes."""
+    return get_categories()
+
+@st.cache_data(ttl=300)  # Cache for 5 minutes
+def cached_get_price_range():
+    """Cache price range for 5 minutes."""
+    return get_price_range()
+
+@st.cache_data(ttl=300)  # Cache for 5 minutes
+def cached_get_products(category=None, max_price=None, limit=100):
+    """Cache product list for 5 minutes."""
+    return get_products(category=category, max_price=max_price, limit=limit)
 
 st.set_page_config(
     page_title="Browse Books — AI Book Store",
@@ -119,10 +138,10 @@ if st.session_state.get("checkout_trigger"):
 with st.sidebar:
     st.markdown("### 🔍 Filters")
 
-    categories   = ["All"] + get_categories()
+    categories   = ["All"] + cached_get_categories()
     selected_cat = st.selectbox("Category", categories)
 
-    pr          = get_price_range()
+    pr          = cached_get_price_range()
     min_p       = int(pr.get("min", 300))
     max_p       = int(pr.get("max", 1500))
     price_range = st.slider(
@@ -188,7 +207,7 @@ search = st.text_input(
 st.divider()
 
 cat      = None if selected_cat == "All" else selected_cat
-products = get_products(category=cat, max_price=price_range[1], limit=100)
+products = cached_get_products(category=cat, max_price=price_range[1], limit=100)
 products = [p for p in products if p.get("price",  0) >= price_range[0]]
 products = [p for p in products if p.get("rating", 0) >= min_rating]
 if search.strip():
