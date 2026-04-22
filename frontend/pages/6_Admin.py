@@ -109,7 +109,7 @@ with st.sidebar:
 # ── Header ────────────────────────────────────────────────────────────────────
 st.markdown('<div class="page-title">👑 Admin Dashboard</div>',
             unsafe_allow_html=True)
-st.caption(f\"Logged in as **{user['username']}** (Admin - Full Control)\")
+st.caption(f"Logged in as **{user['username']}** (Admin - Full Control)")
 st.divider()
 
 all_orders = get_all_orders_admin()
