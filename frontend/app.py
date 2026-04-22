@@ -30,13 +30,6 @@ st.set_page_config(
 
 from utils.session import show_login_register, render_sidebar_user
 
-# ── PUBLIC HEALTH CHECK (bypass auth) ─────────────────────────────────────────
-import streamlit.web.cli as cli
-from streamlit.web.server import Server
-if st.query_params.get("health") == "check":
-    st.write("OK")
-    st.stop()
-
 # ── AUTH GATE ─────────────────────────────────────────────────────────────────
 if "user" not in st.session_state or not st.session_state["user"]:
     show_login_register()
