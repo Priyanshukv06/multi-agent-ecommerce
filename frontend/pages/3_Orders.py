@@ -151,7 +151,7 @@ with st.sidebar:
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 st.markdown('<div class="page-title">📦 My Orders</div>', unsafe_allow_html=True)
-st.caption(f"Logged in as **{user['username']}** — showing only your orders")
+st.caption(f"Logged in as **{user['username']}**")
 
 all_orders = get_user_orders(user["id"])
 
@@ -179,8 +179,6 @@ with m4:
     )
     st.metric("Total Spent", f"₹{total_spent:,.0f}")
 st.divider()
-
-st.caption(f"{len(filtered)} order(s) shown")
 
 if not filtered:
     st.markdown("""
