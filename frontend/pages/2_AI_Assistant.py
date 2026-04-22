@@ -283,7 +283,7 @@ with st.sidebar:
                 st.session_state.last_product  = None
                 st.session_state.last_order_id = None
                 st.session_state.ranked        = []
-                history = get_history(sid, user_id=user[\"id\"], limit=50)  # ← FIXED: Pass user_id for security
+                history = get_history(sid, user_id=user["id"], limit=50)  # ← FIXED: Pass user_id for security
                 st.session_state.messages = [
                     {"role": h["role"], "content": h["content"],
                      "intent": h.get("intent", ""), "elapsed": None, "data": {}}
