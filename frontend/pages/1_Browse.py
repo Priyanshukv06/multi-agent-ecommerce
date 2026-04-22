@@ -282,6 +282,10 @@ for row_start in range(0, len(page_books), COLS_PER_ROW):
 
             with st.expander("Details"):
                 st.caption(book.get("description", ""))
+                if st.button("📖 View Full Details", key=f"detail_{pid}",
+                             use_container_width=True):
+                    st.session_state["detail_product_id"] = pid
+                    st.switch_page("pages/4_Book_Detail.py")
                 if st.button("🤖 Compare / Recommend", key=f"ai_{pid}",
                              use_container_width=True):
                     st.session_state["ai_prefill"] = (
